@@ -1,0 +1,1 @@
+from strategies.multi_factor_equity.strategy import MultiFactorStrategy

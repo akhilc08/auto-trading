@@ -1,4 +1,5 @@
-SYMBOLS = ["SPY", "QQQ", "IWM", "EFA", "AGG", "GLD", "USO", "TLT", "HYG", "DXY"]
+# Equity + bond macro focus (no commodities — those are in trend_following_v2)
+SYMBOLS = ["SPY", "QQQ", "TLT", "IWM", "AGG"]
 
 INTERVAL = "1d"
 TRADE_OUTSIDE_HOURS = False
@@ -8,7 +9,7 @@ SLOW_WINDOW = 60
 ATR_WINDOW = 14
 ENTRY_THRESHOLD = 0.01
 VOL_LOOKBACK = 20
-VOL_TARGET = 0.15
+VOL_TARGET = 0.20
 ATR_STOP_MULTIPLE = 3.0
 MAX_HOLDING_DAYS = 60
 POSITION_SIZE_USD = 10_000

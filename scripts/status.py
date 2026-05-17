@@ -13,7 +13,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 from core.alpaca_client import AlpacaClient
 
-STRATEGIES = ["stat_arb", "stat_arb_v2", "stat_arb_v3", "trend_following", "market_neutral", "multi_factor_equity"]
+STRATEGIES = [
+    "stat_arb", "stat_arb_v2", "stat_arb_v3",
+    "trend_following", "trend_following_v2",
+    "multi_factor_equity", "multi_factor_equity_v2",
+    "market_neutral", "market_neutral_v2",
+]
 
 
 def _color(val: float, good_positive: bool = True) -> str:
