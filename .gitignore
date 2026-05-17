@@ -8,3 +8,7 @@ venv/
 *.egg-info/
 dist/
 .DS_Store
+
+# Per-account env files (copy from config/.env.*.example and fill in keys)
+.env.*
+!.env.*.example
