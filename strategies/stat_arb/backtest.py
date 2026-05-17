@@ -27,6 +27,9 @@ class BacktestParams:
     coint_pvalue_threshold: float = 0.05
     hlife_min: float = 2.0
     hlife_max: float = 30.0
+    leverage: float = 1.0
+    rolling_window: int = 60
+    num_pairs: int = 5
 
 
 class TradeRecord(NamedTuple):
@@ -88,22 +91,30 @@ def _max_drawdown(daily_returns: list[float]) -> float:
     return float(drawdowns.max()) if len(drawdowns) > 0 else 0.0
 
 
+_PHI_POOL = [0.85, 0.88, 0.82, 0.90, 0.87, 0.83, 0.86, 0.89, 0.84, 0.91,
+             0.80, 0.92, 0.81, 0.93, 0.79]
+_NOISE_POOL = [0.005, 0.006, 0.004, 0.007, 0.005, 0.006, 0.004, 0.005, 0.006, 0.007,
+               0.004, 0.005, 0.006, 0.004, 0.005]
+
+
 def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
     """
     Simulates the stat arb strategy on synthetic cointegrated pairs.
     Splits data into formation + trading periods.
+    Supports leverage, configurable rolling window, and variable pair count.
     """
-    total_days = params.formation_days + 252  # 1 year trading
-    phi_values = [0.85, 0.88, 0.82, 0.90, 0.87]
-    pair_seeds = [seed, seed + 1, seed + 2, seed + 3, seed + 4]
+    total_days = params.formation_days + 252
+    n = min(params.num_pairs, len(_PHI_POOL))
+    phi_values = _PHI_POOL[:n]
+    noise_values = _NOISE_POOL[:n]
+    pair_seeds = [seed + i for i in range(n)]
 
     all_daily_returns: list[float] = [0.0] * 252
     all_trades: list[TradeRecord] = []
-
     pairs_included = 0
 
-    for phi, pseed in zip(phi_values, pair_seeds):
-        prices_a, prices_b = _generate_pair(total_days, phi=phi, noise_std=0.005, seed=pseed)
+    for phi, noise_std, pseed in zip(phi_values, noise_values, pair_seeds):
+        prices_a, prices_b = _generate_pair(total_days, phi=phi, noise_std=noise_std, seed=pseed)
 
         form_a = np.log(prices_a[:params.formation_days])
         form_b = np.log(prices_b[:params.formation_days])
@@ -118,15 +129,12 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
 
         pairs_included += 1
         kalman = KalmanSpread(delta=params.kalman_delta, obs_noise=params.kalman_obs_noise)
-        # Warm up Kalman and seed the rolling innovation buffer
-        ROLLING_WINDOW = 60
         innov_buf: list[float] = []
         for a, b in zip(form_a, form_b):
             e, _ = kalman.update(a, b)
             innov_buf.append(e)
-        innov_buf = innov_buf[-ROLLING_WINDOW:]
+        innov_buf = innov_buf[-params.rolling_window:]
 
-        # Trading period
         trade_a = prices_a[params.formation_days:]
         trade_b = prices_b[params.formation_days:]
 
@@ -146,16 +154,12 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
             log_pb = math.log(trade_b[day])
             e, _ = kalman.update(log_pa, log_pb)
 
-            # Rolling empirical z-score — normalizes against recent innovation distribution
             innov_buf.append(e)
-            if len(innov_buf) > ROLLING_WINDOW:
+            if len(innov_buf) > params.rolling_window:
                 innov_buf.pop(0)
             ibuf = np.array(innov_buf)
             ibuf_std = float(ibuf.std())
-            if ibuf_std < 1e-10:
-                zscore = 0.0
-            else:
-                zscore = (e - float(ibuf.mean())) / ibuf_std
+            zscore = (e - float(ibuf.mean())) / ibuf_std if ibuf_std > 1e-10 else 0.0
 
             signal = compute_signal(
                 zscore=zscore,
@@ -169,8 +173,8 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
 
             if position is PairPosition.NONE and cooldown == 0:
                 if signal is SignalResult.ENTER_LONG:
-                    qty_a = params.position_size_usd / trade_a[day]
-                    qty_b = params.position_size_usd / trade_b[day]
+                    qty_a = params.position_size_usd * params.leverage / trade_a[day]
+                    qty_b = params.position_size_usd * params.leverage / trade_b[day]
                     entry_price_a = trade_a[day]
                     entry_price_b = trade_b[day]
                     position = PairPosition.LONG
@@ -178,8 +182,8 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
                     bars_held = 0
                     entry_day = day
                 elif signal is SignalResult.ENTER_SHORT:
-                    qty_a = params.position_size_usd / trade_a[day]
-                    qty_b = params.position_size_usd / trade_b[day]
+                    qty_a = params.position_size_usd * params.leverage / trade_a[day]
+                    qty_b = params.position_size_usd * params.leverage / trade_b[day]
                     entry_price_a = trade_a[day]
                     entry_price_b = trade_b[day]
                     position = PairPosition.SHORT
