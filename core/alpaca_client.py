@@ -44,7 +44,9 @@ class AlpacaClient:
         n_days: int,
         timeframe: TimeFrame = TimeFrame.Day,
     ):
-        start = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=n_days + 14)
+        # multiply by 1.5 to convert trading days to calendar days (accounts for weekends + holidays)
+        calendar_days = int(n_days * 1.5) + 14
+        start = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=calendar_days)
         request = StockBarsRequest(
             symbol_or_symbols=symbols,
             timeframe=timeframe,
