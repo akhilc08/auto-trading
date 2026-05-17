@@ -25,10 +25,16 @@ class AlpacaClient:
         )
 
     def get_latest_bars(self, symbols: list[str], timeframe: TimeFrame = TimeFrame.Minute):
+        if timeframe == TimeFrame.Day:
+            lookback = datetime.timedelta(days=5)
+        elif timeframe == TimeFrame.Hour:
+            lookback = datetime.timedelta(hours=2)
+        else:
+            lookback = datetime.timedelta(minutes=10)
         request = StockBarsRequest(
             symbol_or_symbols=symbols,
             timeframe=timeframe,
-            start=datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=10),
+            start=datetime.datetime.now(datetime.timezone.utc) - lookback,
         )
         return self.data.get_stock_bars(request)
 

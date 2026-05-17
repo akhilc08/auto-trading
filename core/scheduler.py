@@ -2,7 +2,9 @@ import traceback
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from alpaca.data.timeframe import TimeFrame
 from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 ET = ZoneInfo("America/New_York")
@@ -19,6 +21,14 @@ def _parse_interval(interval: str) -> dict:
     return {unit_map[unit]: value}
 
 
+def _interval_to_timeframe(interval: str) -> TimeFrame:
+    if interval == "1d":
+        return TimeFrame.Day
+    if interval.endswith("h"):
+        return TimeFrame.Hour
+    return TimeFrame.Minute
+
+
 def _is_market_hours() -> bool:
     now = datetime.now(ET)
     if now.weekday() >= 5:
@@ -31,19 +41,24 @@ def _is_market_hours() -> bool:
 def run_cron(strategy, client, config):
     interval = getattr(config, "INTERVAL", "1m")
     trade_outside_hours = getattr(config, "TRADE_OUTSIDE_HOURS", False)
-    interval_kwargs = _parse_interval(interval)
+    timeframe = _interval_to_timeframe(interval)
 
     def job():
         if not trade_outside_hours and not _is_market_hours():
             return
         try:
-            bars = client.get_latest_bars(config.SYMBOLS)
+            bars = client.get_latest_bars(config.SYMBOLS, timeframe=timeframe)
             strategy.on_bar(bars)
         except Exception:
             strategy.logger.error(f"Error in on_bar:\n{traceback.format_exc()}")
 
     scheduler = BlockingScheduler(timezone=ET)
-    scheduler.add_job(job, IntervalTrigger(**interval_kwargs))
+    if interval == "1d":
+        # Run once daily at 4:05 PM ET after market close, Mon–Fri
+        trigger = CronTrigger(day_of_week="mon-fri", hour=16, minute=5, timezone=ET)
+    else:
+        trigger = IntervalTrigger(**_parse_interval(interval))
+    scheduler.add_job(job, trigger)
     strategy.logger.info(f"Cron scheduler started interval={interval} symbols={config.SYMBOLS}")
     scheduler.start()
 

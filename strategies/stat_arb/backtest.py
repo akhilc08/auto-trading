@@ -228,3 +228,138 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
         daily_pnl=all_daily_returns,
         trades=all_trades,
     )
+
+
+def run_backtest_on_pairs(
+    params: BacktestParams,
+    pairs_data: list[tuple[np.ndarray, np.ndarray]],
+) -> BacktestResult:
+    """
+    Same logic as run_backtest() but uses real price arrays instead of synthetic data.
+    pairs_data: list of (prices_a, prices_b) — raw prices (not log).
+    Caller is responsible for pre-screening cointegration; this function only trades.
+    """
+    MAX_DAYS = 1500
+    all_daily_returns: list[float] = [0.0] * MAX_DAYS
+    all_trades: list[TradeRecord] = []
+    pairs_included = 0
+    max_trading_days = 0
+
+    for prices_a, prices_b in pairs_data:
+        total_days = len(prices_a)
+        if total_days < params.formation_days + 30:
+            continue
+
+        trading_days = total_days - params.formation_days
+        if trading_days > max_trading_days:
+            max_trading_days = trading_days
+
+        form_a = np.log(prices_a[:params.formation_days])
+        form_b = np.log(prices_b[:params.formation_days])
+
+        kalman = KalmanSpread(delta=params.kalman_delta, obs_noise=params.kalman_obs_noise)
+        innov_buf: list[float] = []
+        for a, b in zip(form_a, form_b):
+            e, _ = kalman.update(a, b)
+            innov_buf.append(e)
+        innov_buf = innov_buf[-params.rolling_window:]
+
+        trade_a = prices_a[params.formation_days:]
+        trade_b = prices_b[params.formation_days:]
+
+        position = PairPosition.NONE
+        bars_held = 0
+        cooldown = 0
+        qty_a = qty_b = 0.0
+        entry_price_a = entry_price_b = 0.0
+        entry_day = 0
+        entry_position: PairPosition = PairPosition.NONE
+
+        for day in range(len(trade_a)):
+            if cooldown > 0:
+                cooldown -= 1
+
+            log_pa = math.log(trade_a[day])
+            log_pb = math.log(trade_b[day])
+            e, _ = kalman.update(log_pa, log_pb)
+
+            innov_buf.append(e)
+            if len(innov_buf) > params.rolling_window:
+                innov_buf.pop(0)
+            ibuf = np.array(innov_buf)
+            ibuf_std = float(ibuf.std())
+            zscore = (e - float(ibuf.mean())) / ibuf_std if ibuf_std > 1e-10 else 0.0
+
+            signal = compute_signal(
+                zscore=zscore,
+                position=position,
+                bars_held=bars_held,
+                entry_zscore=params.entry_zscore,
+                exit_zscore=params.exit_zscore,
+                stoploss_zscore=params.stoploss_zscore,
+                max_holding_days=params.max_holding_days,
+            )
+
+            if position is PairPosition.NONE and cooldown == 0:
+                if signal is SignalResult.ENTER_LONG:
+                    qty_a = params.position_size_usd * params.leverage / trade_a[day]
+                    qty_b = params.position_size_usd * params.leverage / trade_b[day]
+                    entry_price_a = trade_a[day]
+                    entry_price_b = trade_b[day]
+                    position = PairPosition.LONG
+                    entry_position = PairPosition.LONG
+                    bars_held = 0
+                    entry_day = day
+                elif signal is SignalResult.ENTER_SHORT:
+                    qty_a = params.position_size_usd * params.leverage / trade_a[day]
+                    qty_b = params.position_size_usd * params.leverage / trade_b[day]
+                    entry_price_a = trade_a[day]
+                    entry_price_b = trade_b[day]
+                    position = PairPosition.SHORT
+                    entry_position = PairPosition.SHORT
+                    bars_held = 0
+                    entry_day = day
+
+            elif position is not PairPosition.NONE:
+                if signal in (SignalResult.EXIT, SignalResult.STOP, SignalResult.TIME_STOP):
+                    if entry_position is PairPosition.LONG:
+                        pnl = qty_a * (trade_a[day] - entry_price_a) - qty_b * (trade_b[day] - entry_price_b)
+                    else:
+                        pnl = -qty_a * (trade_a[day] - entry_price_a) + qty_b * (trade_b[day] - entry_price_b)
+
+                    capital = params.position_size_usd * 2
+                    ret = pnl / capital
+                    if day < MAX_DAYS:
+                        all_daily_returns[day] += ret
+                    all_trades.append(TradeRecord(entry_day, day, pnl, signal.value))
+
+                    if signal is SignalResult.STOP:
+                        cooldown = params.reentry_cooldown_days
+                    position = PairPosition.NONE
+                    bars_held = 0
+                else:
+                    bars_held += 1
+
+        pairs_included += 1
+
+    if pairs_included == 0:
+        return BacktestResult(0.0, 0.0, 0.0, 0.0, 0)
+
+    actual_len = min(max_trading_days, MAX_DAYS)
+    trimmed = all_daily_returns[:actual_len]
+
+    sharpe = _sharpe(trimmed)
+    max_dd = _max_drawdown(trimmed)
+    total_ret = float(np.prod(1 + np.array(trimmed)) - 1)
+    wins = sum(1 for t in all_trades if t.pnl > 0)
+    win_rate = wins / len(all_trades) if all_trades else 0.0
+
+    return BacktestResult(
+        total_return=total_ret,
+        annualized_sharpe=sharpe,
+        max_drawdown=max_dd,
+        win_rate=win_rate,
+        num_trades=len(all_trades),
+        daily_pnl=trimmed,
+        trades=all_trades,
+    )

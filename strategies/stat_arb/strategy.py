@@ -9,7 +9,7 @@ from strategies.stat_arb.signals import PairPosition, SignalResult, compute_sign
 from strategies.stat_arb.spread import KalmanSpread
 
 
-_ROLLING_WINDOW = 60
+_ROLLING_WINDOW = 60  # overridden by config.ROLLING_WINDOW if present
 
 
 @dataclass
@@ -30,6 +30,7 @@ class StatArbStrategy(BaseStrategy):
         super().__init__(client, order_manager, logger, config)
         self._initialized = False
         self._pairs: list[_PairState] = []
+        self._rolling_window = getattr(config, "ROLLING_WINDOW", _ROLLING_WINDOW)
 
     def on_bar(self, bars) -> None:
         if not self._initialized:
@@ -79,7 +80,7 @@ class StatArbStrategy(BaseStrategy):
             for a, b in zip(lp_a, lp_b):
                 e, _ = kalman.update(a, b)
                 innov_buf.append(e)
-            innov_buf = innov_buf[-_ROLLING_WINDOW:]
+            innov_buf = innov_buf[-self._rolling_window:]
 
             self._pairs.append(_PairState(sym_a, sym_b, kalman, innov_buf=innov_buf))
             self.logger.info(f"Pair {sym_a}/{sym_b} added to book (β={kalman.beta:.4f})")
@@ -99,7 +100,7 @@ class StatArbStrategy(BaseStrategy):
 
             e, _ = pair.kalman.update(math.log(price_a), math.log(price_b))
             pair.innov_buf.append(e)
-            if len(pair.innov_buf) > _ROLLING_WINDOW:
+            if len(pair.innov_buf) > self._rolling_window:
                 pair.innov_buf.pop(0)
             ibuf = np.array(pair.innov_buf)
             ibuf_std = float(ibuf.std())
