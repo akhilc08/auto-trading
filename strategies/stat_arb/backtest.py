@@ -30,6 +30,7 @@ class BacktestParams:
     leverage: float = 1.0
     rolling_window: int = 60
     num_pairs: int = 5
+    slippage_bps: float = 5.0  # one-way slippage + spread per leg
 
 
 class TradeRecord(NamedTuple):
@@ -171,37 +172,43 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
                 max_holding_days=params.max_holding_days,
             )
 
+            last_idx = len(trade_a) - 1
+            fill_idx = min(day + 1, last_idx)
+
             if position is PairPosition.NONE and cooldown == 0:
                 if signal is SignalResult.ENTER_LONG:
-                    qty_a = params.position_size_usd * params.leverage / trade_a[day]
-                    qty_b = params.position_size_usd * params.leverage / trade_b[day]
-                    entry_price_a = trade_a[day]
-                    entry_price_b = trade_b[day]
+                    entry_price_a = trade_a[fill_idx]
+                    entry_price_b = trade_b[fill_idx]
+                    qty_a = params.position_size_usd * params.leverage / entry_price_a
+                    qty_b = params.position_size_usd * params.leverage / entry_price_b
                     position = PairPosition.LONG
                     entry_position = PairPosition.LONG
                     bars_held = 0
-                    entry_day = day
+                    entry_day = fill_idx
                 elif signal is SignalResult.ENTER_SHORT:
-                    qty_a = params.position_size_usd * params.leverage / trade_a[day]
-                    qty_b = params.position_size_usd * params.leverage / trade_b[day]
-                    entry_price_a = trade_a[day]
-                    entry_price_b = trade_b[day]
+                    entry_price_a = trade_a[fill_idx]
+                    entry_price_b = trade_b[fill_idx]
+                    qty_a = params.position_size_usd * params.leverage / entry_price_a
+                    qty_b = params.position_size_usd * params.leverage / entry_price_b
                     position = PairPosition.SHORT
                     entry_position = PairPosition.SHORT
                     bars_held = 0
-                    entry_day = day
+                    entry_day = fill_idx
 
             elif position is not PairPosition.NONE:
                 if signal in (SignalResult.EXIT, SignalResult.STOP, SignalResult.TIME_STOP):
                     if entry_position is PairPosition.LONG:
-                        pnl = qty_a * (trade_a[day] - entry_price_a) - qty_b * (trade_b[day] - entry_price_b)
+                        pnl = qty_a * (trade_a[fill_idx] - entry_price_a) - qty_b * (trade_b[fill_idx] - entry_price_b)
                     else:
-                        pnl = -qty_a * (trade_a[day] - entry_price_a) + qty_b * (trade_b[day] - entry_price_b)
+                        pnl = -qty_a * (trade_a[fill_idx] - entry_price_a) + qty_b * (trade_b[fill_idx] - entry_price_b)
+                    # 4 one-way fills: open A, open B, close A, close B
+                    rt_cost = 4 * params.position_size_usd * params.leverage * params.slippage_bps / 10_000
+                    pnl -= rt_cost
 
                     capital = params.position_size_usd * 2
                     ret = pnl / capital
-                    all_daily_returns[day] += ret
-                    all_trades.append(TradeRecord(entry_day, day, pnl, signal.value))
+                    all_daily_returns[fill_idx] += ret
+                    all_trades.append(TradeRecord(entry_day, fill_idx, pnl, signal.value))
 
                     if signal is SignalResult.STOP:
                         cooldown = params.reentry_cooldown_days
@@ -300,38 +307,43 @@ def run_backtest_on_pairs(
                 max_holding_days=params.max_holding_days,
             )
 
+            last_idx = len(trade_a) - 1
+            fill_idx = min(day + 1, last_idx)
+
             if position is PairPosition.NONE and cooldown == 0:
                 if signal is SignalResult.ENTER_LONG:
-                    qty_a = params.position_size_usd * params.leverage / trade_a[day]
-                    qty_b = params.position_size_usd * params.leverage / trade_b[day]
-                    entry_price_a = trade_a[day]
-                    entry_price_b = trade_b[day]
+                    entry_price_a = trade_a[fill_idx]
+                    entry_price_b = trade_b[fill_idx]
+                    qty_a = params.position_size_usd * params.leverage / entry_price_a
+                    qty_b = params.position_size_usd * params.leverage / entry_price_b
                     position = PairPosition.LONG
                     entry_position = PairPosition.LONG
                     bars_held = 0
-                    entry_day = day
+                    entry_day = fill_idx
                 elif signal is SignalResult.ENTER_SHORT:
-                    qty_a = params.position_size_usd * params.leverage / trade_a[day]
-                    qty_b = params.position_size_usd * params.leverage / trade_b[day]
-                    entry_price_a = trade_a[day]
-                    entry_price_b = trade_b[day]
+                    entry_price_a = trade_a[fill_idx]
+                    entry_price_b = trade_b[fill_idx]
+                    qty_a = params.position_size_usd * params.leverage / entry_price_a
+                    qty_b = params.position_size_usd * params.leverage / entry_price_b
                     position = PairPosition.SHORT
                     entry_position = PairPosition.SHORT
                     bars_held = 0
-                    entry_day = day
+                    entry_day = fill_idx
 
             elif position is not PairPosition.NONE:
                 if signal in (SignalResult.EXIT, SignalResult.STOP, SignalResult.TIME_STOP):
                     if entry_position is PairPosition.LONG:
-                        pnl = qty_a * (trade_a[day] - entry_price_a) - qty_b * (trade_b[day] - entry_price_b)
+                        pnl = qty_a * (trade_a[fill_idx] - entry_price_a) - qty_b * (trade_b[fill_idx] - entry_price_b)
                     else:
-                        pnl = -qty_a * (trade_a[day] - entry_price_a) + qty_b * (trade_b[day] - entry_price_b)
+                        pnl = -qty_a * (trade_a[fill_idx] - entry_price_a) + qty_b * (trade_b[fill_idx] - entry_price_b)
+                    rt_cost = 4 * params.position_size_usd * params.leverage * params.slippage_bps / 10_000
+                    pnl -= rt_cost
 
                     capital = params.position_size_usd * 2
                     ret = pnl / capital
-                    if day < MAX_DAYS:
-                        all_daily_returns[day] += ret
-                    all_trades.append(TradeRecord(entry_day, day, pnl, signal.value))
+                    if fill_idx < MAX_DAYS:
+                        all_daily_returns[fill_idx] += ret
+                    all_trades.append(TradeRecord(entry_day, fill_idx, pnl, signal.value))
 
                     if signal is SignalResult.STOP:
                         cooldown = params.reentry_cooldown_days

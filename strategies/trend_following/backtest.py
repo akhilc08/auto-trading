@@ -28,6 +28,7 @@ class BacktestParams:
     position_size_usd: float = 10_000
     num_instruments: int = 5
     formation_days: int = 100
+    slippage_bps: float = 5.0  # one-way slippage + spread
 
 
 class TradeRecord(NamedTuple):
@@ -215,15 +216,21 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
                 max_holding_days=params.max_holding_days,
             )
 
+            last_day_idx = len(trade_prices) - 1
+            fill_price = trade_prices[min(day + 1, last_day_idx)]
+
             if position is not InstrumentPosition.NONE and signal in (
                 SignalResult.EXIT,
                 SignalResult.ATR_STOP,
                 SignalResult.TIME_STOP,
             ):
                 if position is InstrumentPosition.LONG:
-                    pnl = qty * (price - entry_price)
+                    pnl = qty * (fill_price - entry_price)
                 else:
-                    pnl = -qty * (price - entry_price)
+                    pnl = -qty * (fill_price - entry_price)
+                # round-trip: entry + exit = 2 one-way fills
+                rt_cost = 2 * params.position_size_usd * params.slippage_bps / 10_000
+                pnl -= rt_cost
                 all_trades.append(TradeRecord(entry_day, day, pnl, signal.value))
                 position = InstrumentPosition.NONE
                 bars_held = 0
@@ -232,17 +239,17 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
             if position is InstrumentPosition.NONE:
                 if signal is SignalResult.ENTER_LONG:
                     rvol = compute_realized_vol(np.array(returns_buf))
-                    qty = compute_position_size(price, rvol, params.vol_target, params.position_size_usd)
-                    entry_price = price
-                    prev_mtm_price = price
+                    qty = compute_position_size(fill_price, rvol, params.vol_target, params.position_size_usd)
+                    entry_price = fill_price
+                    prev_mtm_price = fill_price
                     position = InstrumentPosition.LONG
                     bars_held = 0
                     entry_day = day
                 elif signal is SignalResult.ENTER_SHORT:
                     rvol = compute_realized_vol(np.array(returns_buf))
-                    qty = compute_position_size(price, rvol, params.vol_target, params.position_size_usd)
-                    entry_price = price
-                    prev_mtm_price = price
+                    qty = compute_position_size(fill_price, rvol, params.vol_target, params.position_size_usd)
+                    entry_price = fill_price
+                    prev_mtm_price = fill_price
                     position = InstrumentPosition.SHORT
                     bars_held = 0
                     entry_day = day

@@ -27,7 +27,7 @@ _TRADING_YEARS = 5
 # Alpha scale: raw pool values are 1e-4 to 3e-4. Multiply by _ALPHA_SCALE so that
 # cross-sectional mu spread is wide enough for momentum signals to be detectable
 # above idiosyncratic noise over a 252-day lookback window.
-_ALPHA_SCALE = 10.0
+_ALPHA_SCALE = 1.0
 
 
 @dataclass
@@ -40,6 +40,7 @@ class BacktestParams:
     position_size_usd: float = 10_000
     num_stocks: int = 30
     formation_days: int = 252
+    slippage_bps: float = 5.0  # one-way slippage + spread per position
 
 
 class TradeRecord(NamedTuple):
@@ -154,8 +155,11 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
                     cov = float(np.cov(hist_returns[i], mkt_hist)[0, 1])
                     betas[i] = max(0.3, cov / mkt_var)
 
+            # Signal at close of day t; fill at next-day open (approx: close t+1)
+            fill_t = min(t + 1, total_days)
+
             for sym_idx, (qty, direction, entry_price) in list(positions.items()):
-                close_price = prices[sym_idx, t]
+                close_price = prices[sym_idx, fill_t]
                 pnl = direction * qty * (close_price - entry_price)
                 all_trades.append(TradeRecord(
                     entry_day=last_rebalance_day,
@@ -165,15 +169,20 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
                     pnl=pnl,
                 ))
 
+            # Turnover cost: one-way slippage on each position closed and opened
+            n_closing = len(positions)
+            n_opening = len(long_idx) + len(short_idx)
+            turnover_cost = (n_closing + n_opening) * params.position_size_usd * params.slippage_bps / 10_000
+            daily_portfolio_returns[day_offset] -= turnover_cost / total_capital
+
             positions = {}
             for sym_idx in long_idx:
-                entry_price = prices[sym_idx, t]
-                # Scale position by 1/beta to neutralize market exposure
+                entry_price = prices[sym_idx, fill_t]
                 beta_wt = 1.0 / betas[sym_idx]
                 qty = params.position_size_usd * beta_wt / entry_price
                 positions[int(sym_idx)] = (qty, 1, entry_price)
             for sym_idx in short_idx:
-                entry_price = prices[sym_idx, t]
+                entry_price = prices[sym_idx, fill_t]
                 beta_wt = 1.0 / betas[sym_idx]
                 qty = params.position_size_usd * beta_wt / entry_price
                 positions[int(sym_idx)] = (qty, -1, entry_price)
