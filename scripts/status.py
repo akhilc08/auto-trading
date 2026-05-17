@@ -18,6 +18,7 @@ STRATEGIES = [
     "trend_following", "trend_following_v2",
     "multi_factor_equity", "multi_factor_equity_v2",
     "market_neutral", "market_neutral_v2",
+    "vol_risk_premium", "post_earnings_drift", "regime_switching",
 ]
 
 

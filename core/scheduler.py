@@ -44,7 +44,9 @@ def run_cron(strategy, client, config):
     timeframe = _interval_to_timeframe(interval)
 
     def job():
-        if not trade_outside_hours and not _is_market_hours():
+        # Daily cron fires at 16:05 ET (5 min after close) — bypass the
+        # market-hours gate for daily strategies since 16:05 is intentional.
+        if interval != "1d" and not trade_outside_hours and not _is_market_hours():
             return
         try:
             bars = client.get_latest_bars(config.SYMBOLS, timeframe=timeframe)

@@ -31,6 +31,9 @@ STRATEGIES = [
     "multi_factor_equity_v2",
     "market_neutral",
     "market_neutral_v2",
+    "vol_risk_premium",
+    "post_earnings_drift",
+    "regime_switching",
 ]
 
 CHECK_INTERVAL = 30       # seconds between health checks
