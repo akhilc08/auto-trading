@@ -4,10 +4,9 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from core.base_strategy import BaseStrategy
-from strategies.stat_arb.pair_selector import cointegration_test, is_valid_pair
+from strategies.stat_arb.pair_selector import is_valid_pair
 from strategies.stat_arb.signals import PairPosition, SignalResult, compute_signal
 from strategies.stat_arb.spread import KalmanSpread
-
 
 _ROLLING_WINDOW = 60  # overridden by config.ROLLING_WINDOW if present
 
@@ -48,7 +47,9 @@ class StatArbStrategy(BaseStrategy):
                 bars_list = hist[symbol]
                 log_prices[symbol] = np.array([math.log(b.close) for b in bars_list])
             except (KeyError, IndexError):
-                self.logger.warning(f"No historical data for {symbol}, skipping pairs involving it")
+                self.logger.warning(
+                    f"No historical data for {symbol}, skipping pairs involving it"
+                )
 
         for sym_a, sym_b in self.config.PAIRS:
             if sym_a not in log_prices or sym_b not in log_prices:
@@ -58,18 +59,23 @@ class StatArbStrategy(BaseStrategy):
             lp_b = log_prices[sym_b]
             n = min(len(lp_a), len(lp_b))
             if n < 60:
-                self.logger.warning(f"Insufficient history for {sym_a}/{sym_b} ({n} bars), skipping")
+                self.logger.warning(
+                    f"Insufficient history for {sym_a}/{sym_b} ({n} bars), skipping"
+                )
                 continue
 
             lp_a, lp_b = lp_a[-n:], lp_b[-n:]
 
             if not is_valid_pair(
-                lp_a, lp_b,
+                lp_a,
+                lp_b,
                 pvalue_threshold=self.config.COINT_PVALUE_THRESHOLD,
                 hlife_min=self.config.HLIFE_MIN_DAYS,
                 hlife_max=self.config.HLIFE_MAX_DAYS,
             ):
-                self.logger.info(f"Pair {sym_a}/{sym_b} failed cointegration screen, skipping")
+                self.logger.info(
+                    f"Pair {sym_a}/{sym_b} failed cointegration screen, skipping"
+                )
                 continue
 
             kalman = KalmanSpread(
@@ -80,10 +86,12 @@ class StatArbStrategy(BaseStrategy):
             for a, b in zip(lp_a, lp_b):
                 e, _ = kalman.update(a, b)
                 innov_buf.append(e)
-            innov_buf = innov_buf[-self._rolling_window:]
+            innov_buf = innov_buf[-self._rolling_window :]
 
             self._pairs.append(_PairState(sym_a, sym_b, kalman, innov_buf=innov_buf))
-            self.logger.info(f"Pair {sym_a}/{sym_b} added to book (β={kalman.beta:.4f})")
+            self.logger.info(
+                f"Pair {sym_a}/{sym_b} added to book (β={kalman.beta:.4f})"
+            )
 
         self.logger.info(f"Formation complete: {len(self._pairs)} active pairs")
         self._initialized = True
@@ -124,7 +132,11 @@ class StatArbStrategy(BaseStrategy):
                 self._enter_long(pair, price_a, price_b)
             elif signal is SignalResult.ENTER_SHORT and pair.cooldown_bars == 0:
                 self._enter_short(pair, price_a, price_b)
-            elif signal in (SignalResult.EXIT, SignalResult.STOP, SignalResult.TIME_STOP):
+            elif signal in (
+                SignalResult.EXIT,
+                SignalResult.STOP,
+                SignalResult.TIME_STOP,
+            ):
                 self._exit_pair(pair, signal)
 
             if pair.position is not PairPosition.NONE:
@@ -157,7 +169,9 @@ class StatArbStrategy(BaseStrategy):
     def _exit_pair(self, pair: _PairState, reason: SignalResult) -> None:
         if pair.position is PairPosition.NONE:
             return
-        self.logger.info(f"Exiting {pair.symbol_a}/{pair.symbol_b} reason={reason.value}")
+        self.logger.info(
+            f"Exiting {pair.symbol_a}/{pair.symbol_b} reason={reason.value}"
+        )
         if pair.position is PairPosition.LONG:
             self.order_manager.sell(pair.symbol_a, pair.qty_a)
             self.order_manager.buy_to_cover(pair.symbol_b, pair.qty_b)
