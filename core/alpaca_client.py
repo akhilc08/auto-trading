@@ -32,6 +32,20 @@ class AlpacaClient:
         )
         return self.data.get_stock_bars(request)
 
+    def get_historical_bars(
+        self,
+        symbols: list[str],
+        n_days: int,
+        timeframe: TimeFrame = TimeFrame.Day,
+    ):
+        start = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=n_days + 14)
+        request = StockBarsRequest(
+            symbol_or_symbols=symbols,
+            timeframe=timeframe,
+            start=start,
+        )
+        return self.data.get_stock_bars(request)
+
     def get_stream(self) -> StockDataStream:
         return StockDataStream(
             api_key=self.api_key,

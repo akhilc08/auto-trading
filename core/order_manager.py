@@ -47,6 +47,40 @@ class OrderManager:
             self.logger.error(f"SELL failed {symbol}: {e}")
             return None
 
+    def short_sell(self, symbol: str, qty: float):
+        try:
+            self.logger.info(f"SHORT {qty} {symbol}")
+            order = self.client.trading.submit_order(
+                MarketOrderRequest(
+                    symbol=symbol,
+                    qty=qty,
+                    side=OrderSide.SELL,
+                    time_in_force=TimeInForce.DAY,
+                )
+            )
+            self.logger.info(f"SHORT submitted order_id={order.id}")
+            return order
+        except Exception as e:
+            self.logger.error(f"SHORT failed {symbol}: {e}")
+            return None
+
+    def buy_to_cover(self, symbol: str, qty: float):
+        try:
+            self.logger.info(f"COVER {qty} {symbol}")
+            order = self.client.trading.submit_order(
+                MarketOrderRequest(
+                    symbol=symbol,
+                    qty=qty,
+                    side=OrderSide.BUY,
+                    time_in_force=TimeInForce.DAY,
+                )
+            )
+            self.logger.info(f"COVER submitted order_id={order.id}")
+            return order
+        except Exception as e:
+            self.logger.error(f"COVER failed {symbol}: {e}")
+            return None
+
     def close_position(self, symbol: str):
         try:
             self.logger.info(f"Closing position {symbol}")
