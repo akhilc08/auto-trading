@@ -9,11 +9,15 @@ from strategies.stat_arb.signals import PairPosition, SignalResult, compute_sign
 from strategies.stat_arb.spread import KalmanSpread
 
 
+_ROLLING_WINDOW = 60
+
+
 @dataclass
 class _PairState:
     symbol_a: str
     symbol_b: str
     kalman: KalmanSpread
+    innov_buf: list = field(default_factory=list)
     position: PairPosition = PairPosition.NONE
     bars_held: int = 0
     cooldown_bars: int = 0
@@ -71,10 +75,13 @@ class StatArbStrategy(BaseStrategy):
                 delta=self.config.KALMAN_DELTA,
                 obs_noise=self.config.KALMAN_OBS_NOISE,
             )
+            innov_buf: list[float] = []
             for a, b in zip(lp_a, lp_b):
-                kalman.update(a, b)
+                e, _ = kalman.update(a, b)
+                innov_buf.append(e)
+            innov_buf = innov_buf[-_ROLLING_WINDOW:]
 
-            self._pairs.append(_PairState(sym_a, sym_b, kalman))
+            self._pairs.append(_PairState(sym_a, sym_b, kalman, innov_buf=innov_buf))
             self.logger.info(f"Pair {sym_a}/{sym_b} added to book (β={kalman.beta:.4f})")
 
         self.logger.info(f"Formation complete: {len(self._pairs)} active pairs")
@@ -90,8 +97,13 @@ class StatArbStrategy(BaseStrategy):
             if price_a is None or price_b is None:
                 continue
 
-            e, e_std = pair.kalman.update(math.log(price_a), math.log(price_b))
-            zscore = e / e_std
+            e, _ = pair.kalman.update(math.log(price_a), math.log(price_b))
+            pair.innov_buf.append(e)
+            if len(pair.innov_buf) > _ROLLING_WINDOW:
+                pair.innov_buf.pop(0)
+            ibuf = np.array(pair.innov_buf)
+            ibuf_std = float(ibuf.std())
+            zscore = (e - float(ibuf.mean())) / ibuf_std if ibuf_std > 1e-10 else 0.0
 
             signal = compute_signal(
                 zscore=zscore,
