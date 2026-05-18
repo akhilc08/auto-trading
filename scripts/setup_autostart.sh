@@ -13,9 +13,13 @@ LABEL="com.autotrading.watchdog"
 PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
 LOG_DIR="$PROJECT_DIR/logs"
 
-if [[ ! -f "$PROJECT_DIR/.env" ]]; then
-    echo "ERROR: .env file not found at $PROJECT_DIR/.env"
-    echo "Copy .env from your main machine before continuing."
+MISSING=()
+for account in stat_arb macro_vol stock_alpha; do
+    [[ ! -f "$PROJECT_DIR/.env.$account" ]] && MISSING+=(".env.$account")
+done
+if [[ ${#MISSING[@]} -gt 0 ]]; then
+    echo "ERROR: missing account env files: ${MISSING[*]}"
+    echo "Create each file from its .example counterpart and fill in your Alpaca keys."
     exit 1
 fi
 
