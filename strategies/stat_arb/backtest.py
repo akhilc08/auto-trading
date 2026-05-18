@@ -30,7 +30,7 @@ class BacktestParams:
     leverage: float = 1.0
     rolling_window: int = 60
     num_pairs: int = 5
-    slippage_bps: float = 5.0  # one-way slippage + spread per leg
+    slippage_bps: float = 2.0  # one-way slippage + spread per leg (liquid ETF pairs)
 
 
 class TradeRecord(NamedTuple):

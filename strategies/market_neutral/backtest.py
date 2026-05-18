@@ -28,6 +28,7 @@ class BacktestParams:
     rolling_window: int = 60
     num_stocks: int = 5
     leverage: float = 1.0
+    slippage_bps: float = 3.0  # one-way slippage + spread per leg (stock + index hedge)
 
 
 class TradeRecord(NamedTuple):
@@ -154,43 +155,49 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
                 max_holding_days=params.max_holding_days,
             )
 
+            last_idx = len(trade_stock) - 1
+            fill_idx = min(day + 1, last_idx)
+
             if position is Position.NONE and cooldown == 0:
                 if signal is Signal.ENTER_LONG:
-                    qty_stock = params.position_size_usd * params.leverage / trade_stock[day]
-                    qty_market_pos = params.position_size_usd * params.leverage * beta_hat / trade_market[day]
-                    entry_price_stock = trade_stock[day]
-                    entry_price_market = trade_market[day]
+                    entry_price_stock = trade_stock[fill_idx]
+                    entry_price_market = trade_market[fill_idx]
+                    qty_stock = params.position_size_usd * params.leverage / entry_price_stock
+                    qty_market_pos = params.position_size_usd * params.leverage * beta_hat / entry_price_market
                     position = Position.LONG
                     entry_position = Position.LONG
                     bars_held = 0
-                    entry_day = day
+                    entry_day = fill_idx
                 elif signal is Signal.ENTER_SHORT:
-                    qty_stock = params.position_size_usd * params.leverage / trade_stock[day]
-                    qty_market_pos = params.position_size_usd * params.leverage * beta_hat / trade_market[day]
-                    entry_price_stock = trade_stock[day]
-                    entry_price_market = trade_market[day]
+                    entry_price_stock = trade_stock[fill_idx]
+                    entry_price_market = trade_market[fill_idx]
+                    qty_stock = params.position_size_usd * params.leverage / entry_price_stock
+                    qty_market_pos = params.position_size_usd * params.leverage * beta_hat / entry_price_market
                     position = Position.SHORT
                     entry_position = Position.SHORT
                     bars_held = 0
-                    entry_day = day
+                    entry_day = fill_idx
 
             elif position is not Position.NONE:
                 if signal in (Signal.EXIT, Signal.STOP, Signal.TIME_STOP):
                     if entry_position is Position.LONG:
                         pnl = (
-                            qty_stock * (trade_stock[day] - entry_price_stock)
-                            - qty_market_pos * (trade_market[day] - entry_price_market)
+                            qty_stock * (trade_stock[fill_idx] - entry_price_stock)
+                            - qty_market_pos * (trade_market[fill_idx] - entry_price_market)
                         )
                     else:
                         pnl = (
-                            -qty_stock * (trade_stock[day] - entry_price_stock)
-                            + qty_market_pos * (trade_market[day] - entry_price_market)
+                            -qty_stock * (trade_stock[fill_idx] - entry_price_stock)
+                            + qty_market_pos * (trade_market[fill_idx] - entry_price_market)
                         )
+                    # 4 one-way fills: stock entry/exit + hedge entry/exit
+                    rt_cost = 4 * params.position_size_usd * params.leverage * params.slippage_bps / 10_000
+                    pnl -= rt_cost
 
                     capital = params.position_size_usd * 2
                     ret = pnl / capital
-                    all_daily_returns[day] += ret
-                    all_trades.append(TradeRecord(entry_day, day, pnl, signal.value))
+                    all_daily_returns[fill_idx] += ret
+                    all_trades.append(TradeRecord(entry_day, fill_idx, pnl, signal.value))
 
                     if signal is Signal.STOP:
                         cooldown = params.reentry_cooldown_days

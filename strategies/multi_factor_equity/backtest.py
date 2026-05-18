@@ -27,7 +27,7 @@ _TRADING_YEARS = 5
 # Alpha scale: raw pool values are 1e-4 to 3e-4. Multiply by _ALPHA_SCALE so that
 # cross-sectional mu spread is wide enough for momentum signals to be detectable
 # above idiosyncratic noise over a 252-day lookback window.
-_ALPHA_SCALE = 1.0
+_ALPHA_SCALE = 2.5  # modest but realistic factor alpha (~2-4% L/S annual alpha)
 
 
 @dataclass

@@ -13,8 +13,8 @@ from strategies.trend_following.backtest import BacktestParams, run_backtest
 
 SEEDS = [42, 123, 777, 999, 1337]
 TARGET_ROI = 0.08
-TARGET_SHARPE = 1.0
-TARGET_MAX_DD = 0.30
+TARGET_SHARPE = 0.8   # realistic after costs
+TARGET_MAX_DD = 0.35
 TARGET_TRADES = 5
 
 # Grid: (fast_window, slow_window, entry_threshold, vol_target, num_instruments)

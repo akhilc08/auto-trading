@@ -42,6 +42,7 @@ class BacktestParams:
     vix_crisis: float = 30.0
     vix_risk_off: float = 20.0
     min_bars: int = 5
+    slippage_bps: float = 3.0  # ETF, low turnover
 
 
 @dataclass
@@ -98,14 +99,16 @@ def run_backtest(params: BacktestParams = None) -> BacktestResult:
     candidate_days = 0
     n_switches = 0
     win_days = 0
+    just_switched = False
 
     for t in range(30, n_days):
-        true_regime = regime_path[t]
         vix = vix_series[t]
         vix3m = vix * (1.08 if vix < 25 else 0.94)
 
         state = detect_regime(vix, vix3m, spy_closes[:t + 1], _Cfg())
 
+        true_regime = regime_path[t]
+        just_switched = False
         if state.regime != current_regime:
             if state.regime == candidate:
                 candidate_days += 1
@@ -118,15 +121,22 @@ def run_backtest(params: BacktestParams = None) -> BacktestResult:
                 candidate = None
                 candidate_days = 0
                 n_switches += 1
+                just_switched = True
         else:
             candidate = None
             candidate_days = 0
 
         pnl = 0.0
+        # Returns reflect the true underlying market regime (correct simulation)
+        # The strategy earns based on what the market IS doing, not what it thinks
         for sym, weight in current_alloc:
             base = _INSTR_RETURNS[sym].get(true_regime, 0.0)
             ret = np.random.normal(base, _INSTR_VOL[sym])
             pnl += portfolio * weight * ret
+
+        # Deduct transition cost (ETF rebalancing) when regime switches
+        if just_switched:
+            pnl -= 2 * portfolio * params.slippage_bps / 10_000
 
         if pnl > 0:
             win_days += 1

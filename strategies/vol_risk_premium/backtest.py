@@ -18,6 +18,8 @@ class BacktestParams:
     composite_entry: float = 0.40
     composite_full: float = 0.70
     position_size_usd: float = 10_000
+    slippage_bps: float = 3.0  # ETF, tighter spread
+    stop_loss_pct: float = 0.18  # exit if SVXY drops 18% from entry
 
 
 @dataclass
@@ -83,6 +85,7 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
     svxy_returns[0] = 0.0
     for t in range(1, trading_days):
         delta_vix = vix_series[t] - vix_series[t - 1]
+        # Major vol spike: delta_vix > 15 → severe loss for short-vol products
         if delta_vix > 15.0:
             svxy_returns[t] = -0.35
         elif delta_vix > 8.0:
@@ -95,11 +98,13 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
     svxy_price: float = 15.0
     entry_price: float = 0.0
     entry_day: int = 0
+    portfolio_value: float = params.position_size_usd  # track capital to prevent ruin
 
     spy_returns_buf: list[float] = []
     completed_trades: list[float] = []
 
     for t in range(trading_days):
+        svxy_price_prev = svxy_price
         svxy_price = svxy_price * math.exp(svxy_returns[t])
         svxy_price = max(0.01, svxy_price)
 
@@ -107,8 +112,19 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
         if len(spy_returns_buf) > 22:
             spy_returns_buf = spy_returns_buf[-22:]
 
-        if position_shares > 0:
-            daily_pnl[t] = position_shares * svxy_price * svxy_returns[t] / params.position_size_usd
+        if position_shares > 0 and portfolio_value > 0:
+            dollar_pnl = position_shares * (svxy_price - svxy_price_prev)
+            day_ret = dollar_pnl / portfolio_value
+            daily_pnl[t] = max(-0.999, day_ret)
+            portfolio_value = max(0.0, portfolio_value + dollar_pnl)
+
+            # stop-loss: exit if SVXY fell more than stop_loss_pct from entry
+            if entry_price > 0 and svxy_price < entry_price * (1 - params.stop_loss_pct):
+                trade_pnl = position_shares * (svxy_price - entry_price)
+                trade_pnl -= position_shares * svxy_price * params.slippage_bps / 10_000
+                completed_trades.append(trade_pnl)
+                portfolio_value = max(0.0, portfolio_value - position_shares * svxy_price * params.slippage_bps / 10_000)
+                position_shares = 0.0
 
         if len(spy_returns_buf) < 22:
             continue
@@ -126,16 +142,27 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
             composite_full=params.composite_full,
         )
 
+        available = min(params.position_size_usd, portfolio_value)
+        if available <= 0:
+            continue
+
         if signal == Signal.STRONG and position_shares == 0:
-            position_shares = max(1.0, math.floor(params.position_size_usd / svxy_price))
-            entry_price = svxy_price
+            fill_price = svxy_price
+            position_shares = max(1.0, math.floor(available / fill_price))
+            entry_price = fill_price
             entry_day = t
+            slip = position_shares * fill_price * params.slippage_bps / 10_000
+            daily_pnl[t] -= slip / max(portfolio_value, 1.0)
         elif signal == Signal.MODERATE and position_shares == 0:
-            position_shares = max(1.0, math.floor((params.position_size_usd * 0.5) / svxy_price))
-            entry_price = svxy_price
+            fill_price = svxy_price
+            position_shares = max(1.0, math.floor((available * 0.5) / fill_price))
+            entry_price = fill_price
             entry_day = t
+            slip = position_shares * fill_price * params.slippage_bps / 10_000
+            daily_pnl[t] -= slip / max(portfolio_value, 1.0)
         elif signal == Signal.NONE and position_shares > 0:
             trade_pnl = position_shares * (svxy_price - entry_price)
+            trade_pnl -= position_shares * svxy_price * params.slippage_bps / 10_000
             completed_trades.append(trade_pnl)
             position_shares = 0.0
 

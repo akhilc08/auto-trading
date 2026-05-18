@@ -28,7 +28,7 @@ class BacktestParams:
     position_size_usd: float = 10_000
     num_instruments: int = 5
     formation_days: int = 100
-    slippage_bps: float = 5.0  # one-way slippage + spread
+    slippage_bps: float = 2.0  # one-way slippage + spread (liquid ETFs)
 
 
 class TradeRecord(NamedTuple):

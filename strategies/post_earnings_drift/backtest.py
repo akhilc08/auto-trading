@@ -12,6 +12,7 @@ class BacktestParams:
     stop_loss_pct: float = 0.08
     position_size_usd: float = 10_000
     max_positions: int = 8
+    slippage_bps: float = 8.0  # individual stocks, wider spread
 
 
 @dataclass
@@ -129,6 +130,9 @@ def run_backtest(params: BacktestParams, seed: int = 42) -> BacktestResult:
 
             if exit_trade:
                 trade_pnl = direction_sign * pos["qty"] * (current_price - entry_price)
+                # round-trip: entry + exit slippage
+                rt_cost = 2 * pos["qty"] * current_price * params.slippage_bps / 10_000
+                trade_pnl -= rt_cost
                 completed_trades.append(trade_pnl)
                 to_remove.append(s_idx)
 
