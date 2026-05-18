@@ -15,8 +15,9 @@ class PEADPosition:
 
 
 class PEADStrategy(BaseStrategy):
-    def __init__(self, client, order_manager, logger, cfg=config):
-        super().__init__(client, order_manager, logger, cfg)
+    def __init__(self, client, order_manager, logger, cfg=None, config=None):
+        import strategies.post_earnings_drift.config as _default_cfg
+        super().__init__(client, order_manager, logger, cfg or config or _default_cfg)
         self._positions: dict[str, PEADPosition] = {}
         self._reconcile_positions()
 

@@ -8,8 +8,9 @@ from strategies.vol_risk_premium.signals import Signal, compute_signal, fetch_vi
 
 
 class VRPStrategy(BaseStrategy):
-    def __init__(self, client, order_manager, logger, cfg=config):
-        super().__init__(client, order_manager, logger, cfg)
+    def __init__(self, client, order_manager, logger, cfg=None, config=None):
+        import strategies.vol_risk_premium.config as _default_cfg
+        super().__init__(client, order_manager, logger, cfg or config or _default_cfg)
         self._spy_returns: list[float] = []
         self._prev_spy: float = 0.0
         self._bars_seen: int = 0
