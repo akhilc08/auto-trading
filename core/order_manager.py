@@ -102,6 +102,7 @@ class OrderManager:
             return order
         except Exception as e:
             self.logger.error(f"Close position failed {symbol}: {e}")
+            return None
 
     def cancel_all_orders(self):
         try:
