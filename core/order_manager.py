@@ -3,9 +3,12 @@ from alpaca.trading.requests import MarketOrderRequest
 
 
 class OrderManager:
-    def __init__(self, client, logger):
+    def __init__(self, client, logger, md_logger=None, strategy_name="", account_name=""):
         self.client = client
         self.logger = logger
+        self.md_logger = md_logger
+        self.strategy_name = strategy_name
+        self.account_name = account_name
 
     def get_position(self, symbol: str):
         try:
@@ -25,6 +28,8 @@ class OrderManager:
                 )
             )
             self.logger.info(f"BUY submitted order_id={order.id}")
+            if self.md_logger:
+                self.md_logger.log_order(order, self.strategy_name, self.account_name)
             return order
         except Exception as e:
             self.logger.error(f"BUY failed {symbol}: {e}")
@@ -42,6 +47,8 @@ class OrderManager:
                 )
             )
             self.logger.info(f"SELL submitted order_id={order.id}")
+            if self.md_logger:
+                self.md_logger.log_order(order, self.strategy_name, self.account_name)
             return order
         except Exception as e:
             self.logger.error(f"SELL failed {symbol}: {e}")
@@ -59,6 +66,8 @@ class OrderManager:
                 )
             )
             self.logger.info(f"SHORT submitted order_id={order.id}")
+            if self.md_logger:
+                self.md_logger.log_order(order, self.strategy_name, self.account_name)
             return order
         except Exception as e:
             self.logger.error(f"SHORT failed {symbol}: {e}")
@@ -76,6 +85,8 @@ class OrderManager:
                 )
             )
             self.logger.info(f"COVER submitted order_id={order.id}")
+            if self.md_logger:
+                self.md_logger.log_order(order, self.strategy_name, self.account_name)
             return order
         except Exception as e:
             self.logger.error(f"COVER failed {symbol}: {e}")
@@ -84,8 +95,11 @@ class OrderManager:
     def close_position(self, symbol: str):
         try:
             self.logger.info(f"Closing position {symbol}")
-            self.client.trading.close_position(symbol)
+            order = self.client.trading.close_position(symbol)
             self.logger.info(f"Position closed {symbol}")
+            if self.md_logger:
+                self.md_logger.log_order(order, self.strategy_name, self.account_name)
+            return order
         except Exception as e:
             self.logger.error(f"Close position failed {symbol}: {e}")
 
