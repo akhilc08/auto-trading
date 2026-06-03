@@ -1,5 +1,6 @@
 import argparse
 import importlib
+import os
 import sys
 from pathlib import Path
 
@@ -53,7 +54,16 @@ def main():
 
     logger = get_logger(args.strategy)
     client = AlpacaClient(mode=args.mode)
-    order_manager = OrderManager(client=client, logger=logger)
+    account_name = account_for(args.strategy)
+    token = os.environ.get("MOTHERDUCK_TOKEN")
+    md_logger = None
+    if token:
+        from core.motherduck_logger import MotherDuckLogger
+        md_logger = MotherDuckLogger(token=token)
+    order_manager = OrderManager(
+        client=client, logger=logger, md_logger=md_logger,
+        strategy_name=args.strategy, account_name=account_name,
+    )
     strategy = strategy_class(
         client=client,
         order_manager=order_manager,
@@ -63,10 +73,30 @@ def main():
 
     logger.info(f"Starting strategy={args.strategy} mode={args.mode} trigger={args.trigger}")
 
-    if args.trigger == "cron":
-        run_cron(strategy, client, config_module)
-    else:
-        run_stream(strategy, client, config_module)
+    try:
+        if args.trigger == "cron":
+            run_cron(strategy, client, config_module)
+        else:
+            run_stream(strategy, client, config_module)
+    finally:
+        if md_logger:
+            positions = client.trading.get_all_positions()
+            md_logger.snapshot_positions(positions, args.strategy, account_name)
+            account = client.trading.get_account()
+            md_logger.snapshot_portfolio(account, args.strategy, account_name)
+            # Poll fills for today and record them; pnl=None in Phase 1 — trades.pnl
+            # column is NULLABLE per SCHEMA-07; P&L deferred to Phase 2 daily_pnl Flight.
+            from alpaca.trading.requests import GetOrdersRequest
+            from alpaca.trading.enums import QueryOrderStatus
+            import datetime as dt
+            today = dt.date.today()
+            orders = client.trading.get_orders(GetOrdersRequest(
+                status=QueryOrderStatus.CLOSED,
+                after=dt.datetime.combine(today, dt.time.min, tzinfo=dt.timezone.utc),
+            ))
+            for o in orders:
+                if o.filled_at and o.filled_avg_price:
+                    md_logger.update_fill(str(o.id), o.filled_at, float(o.filled_avg_price), None)
 
 
 if __name__ == "__main__":
