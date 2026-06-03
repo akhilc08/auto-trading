@@ -37,8 +37,8 @@ Strategies execute reliably on schedule and every trade is observable — visibl
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] MotherDuck schema: trades, positions, portfolio_snapshots tables
-- [ ] `core/motherduck_logger.py`: writes trade fills and position snapshots to MotherDuck
+- [x] MotherDuck schema: trades, positions, portfolio_snapshots, daily_pnl tables — Validated in Phase 01: schema-logger-integration
+- [x] `core/motherduck_logger.py`: writes trade fills and position snapshots to MotherDuck — Validated in Phase 01: schema-logger-integration
 - [ ] GitHub Actions workflow: runs each active strategy on its configured cron schedule
 - [ ] Secrets management: Alpaca keys + MotherDuck token in GH Actions secrets
 - [ ] MotherDuck Flights: daily P&L aggregation, drawdown, strategy metrics
@@ -95,4 +95,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-02 after milestone v1.0 start*
+*Last updated: 2026-06-03 — Phase 01 complete: MotherDuckLogger schema and OrderManager/runner.py integration*
