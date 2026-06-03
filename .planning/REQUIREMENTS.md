@@ -8,25 +8,25 @@
 
 ### Schema & Logger
 
-- [ ] **SCHEMA-01**: System creates `trades` table in MotherDuck with columns: `order_id` (PK), `strategy_name`, `account_name`, `symbol`, `side`, `qty`, `submitted_at` (TIMESTAMPTZ), `filled_at` (TIMESTAMPTZ), `filled_avg_price`, `pnl`, `status`
-- [ ] **SCHEMA-02**: System creates `positions` table with columns: `snapshot_at` (TIMESTAMPTZ), `strategy_name`, `account_name`, `symbol`, `qty`, `avg_entry_price`, `current_price`, `unrealized_pnl`
-- [ ] **SCHEMA-03**: System creates `portfolio_snapshots` table with columns: `snapshot_at` (TIMESTAMPTZ), `strategy_name`, `account_name`, `equity`, `cash`, `buying_power`
-- [ ] **SCHEMA-04**: System creates `daily_pnl` table with columns: `date` + `strategy_name` + `account_name` (composite PK), `realized_pnl`, `trade_count`, `win_count`, `sharpe_7d`, `max_drawdown`
-- [ ] **SCHEMA-05**: `MotherDuckLogger` connects via service account token from `MOTHERDUCK_TOKEN` env var and runs `CREATE TABLE IF NOT EXISTS` on startup for all tables
-- [ ] **SCHEMA-06**: `MotherDuckLogger.log_order()` writes to `trades` using `INSERT ... ON CONFLICT (order_id) DO NOTHING`
-- [ ] **SCHEMA-07**: `MotherDuckLogger.update_fill()` updates a submitted trade row with `filled_at`, `filled_avg_price`, and computed `pnl` once Alpaca confirms the fill
-- [ ] **SCHEMA-08**: `MotherDuckLogger.snapshot_positions()` writes current open positions from Alpaca to `positions` table
-- [ ] **SCHEMA-09**: `MotherDuckLogger.snapshot_portfolio()` writes account equity/cash from Alpaca to `portfolio_snapshots` table
-- [ ] **SCHEMA-10**: Logger degrades gracefully when `MOTHERDUCK_TOKEN` is absent — local runs continue working normally
+- [x] **SCHEMA-01**: System creates `trades` table in MotherDuck with columns: `order_id` (PK), `strategy_name`, `account_name`, `symbol`, `side`, `qty`, `submitted_at` (TIMESTAMPTZ), `filled_at` (TIMESTAMPTZ), `filled_avg_price`, `pnl`, `status`
+- [x] **SCHEMA-02**: System creates `positions` table with columns: `snapshot_at` (TIMESTAMPTZ), `strategy_name`, `account_name`, `symbol`, `qty`, `avg_entry_price`, `current_price`, `unrealized_pnl`
+- [x] **SCHEMA-03**: System creates `portfolio_snapshots` table with columns: `snapshot_at` (TIMESTAMPTZ), `strategy_name`, `account_name`, `equity`, `cash`, `buying_power`
+- [x] **SCHEMA-04**: System creates `daily_pnl` table with columns: `date` + `strategy_name` + `account_name` (composite PK), `realized_pnl`, `trade_count`, `win_count`, `sharpe_7d`, `max_drawdown`
+- [x] **SCHEMA-05**: `MotherDuckLogger` connects via service account token from `MOTHERDUCK_TOKEN` env var and runs `CREATE TABLE IF NOT EXISTS` on startup for all tables
+- [x] **SCHEMA-06**: `MotherDuckLogger.log_order()` writes to `trades` using `INSERT ... ON CONFLICT (order_id) DO NOTHING`
+- [x] **SCHEMA-07**: `MotherDuckLogger.update_fill()` updates a submitted trade row with `filled_at`, `filled_avg_price`, and computed `pnl` once Alpaca confirms the fill
+- [x] **SCHEMA-08**: `MotherDuckLogger.snapshot_positions()` writes current open positions from Alpaca to `positions` table
+- [x] **SCHEMA-09**: `MotherDuckLogger.snapshot_portfolio()` writes account equity/cash from Alpaca to `portfolio_snapshots` table
+- [x] **SCHEMA-10**: Logger degrades gracefully when `MOTHERDUCK_TOKEN` is absent — local runs continue working normally
 
 ### Integration
 
-- [ ] **INTEG-01**: `OrderManager` accepts optional `md_logger=None` parameter — all existing callers continue working without changes
-- [ ] **INTEG-02**: `OrderManager` calls `md_logger.log_order()` after each order submission across all 5 order methods (buy, sell, short_sell, buy_to_cover, close_position)
-- [ ] **INTEG-03**: `runner.py` constructs `MotherDuckLogger` when `MOTHERDUCK_TOKEN` is present and passes it to `OrderManager`
-- [ ] **INTEG-04**: `runner.py` calls `md_logger.snapshot_positions()` and `md_logger.snapshot_portfolio()` after `run_cron()` returns
-- [ ] **INTEG-05**: `runner.py` polls Alpaca for fill confirmation after `run_cron()` and calls `md_logger.update_fill()` with `filled_at`, `filled_avg_price`, and computed `pnl`
-- [ ] **INTEG-06**: No strategy files (`strategies/*/strategy.py`) are modified — integration is entirely within `core/`
+- [x] **INTEG-01**: `OrderManager` accepts optional `md_logger=None` parameter — all existing callers continue working without changes
+- [x] **INTEG-02**: `OrderManager` calls `md_logger.log_order()` after each order submission across all 5 order methods (buy, sell, short_sell, buy_to_cover, close_position)
+- [x] **INTEG-03**: `runner.py` constructs `MotherDuckLogger` when `MOTHERDUCK_TOKEN` is present and passes it to `OrderManager`
+- [x] **INTEG-04**: `runner.py` calls `md_logger.snapshot_positions()` and `md_logger.snapshot_portfolio()` after `run_cron()` returns
+- [x] **INTEG-05**: `runner.py` polls Alpaca for fill confirmation after `run_cron()` and calls `md_logger.update_fill()` with `filled_at`, `filled_avg_price`, and computed `pnl`
+- [x] **INTEG-06**: No strategy files (`strategies/*/strategy.py`) are modified — integration is entirely within `core/`
 
 ### Secrets
 
