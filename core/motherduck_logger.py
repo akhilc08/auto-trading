@@ -125,8 +125,8 @@ class MotherDuckLogger:
                     position.symbol,
                     float(position.qty),
                     float(position.avg_entry_price),
-                    float(position.current_price) if position.current_price else None,
-                    float(position.unrealized_pl) if position.unrealized_pl else None,
+                    float(position.current_price) if position.current_price is not None else None,
+                    float(position.unrealized_pl) if position.unrealized_pl is not None else None,
                 ],
             )
 
@@ -141,8 +141,8 @@ class MotherDuckLogger:
                 datetime.now(timezone.utc),
                 strategy_name,
                 account_name,
-                float(account.equity) if account.equity else None,
-                float(account.cash) if account.cash else None,
-                float(account.buying_power) if account.buying_power else None,
+                float(account.equity) if account.equity is not None else None,
+                float(account.cash) if account.cash is not None else None,
+                float(account.buying_power) if account.buying_power is not None else None,
             ],
         )
