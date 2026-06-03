@@ -7,6 +7,7 @@ No import-time side effects: importing this module does NOT open any connection
 (SCHEMA-10 — graceful degradation when MOTHERDUCK_TOKEN is absent).
 """
 import os
+import warnings
 from datetime import datetime, timezone
 
 import duckdb
@@ -99,14 +100,21 @@ class MotherDuckLogger:
         )
 
     def update_fill(self, order_id: str, filled_at, filled_avg_price, pnl):
-        self.con.execute(
+        rows = self.con.execute(
             """
             UPDATE trading.main.trades
             SET filled_at = ?, filled_avg_price = ?, pnl = ?, status = 'filled'
             WHERE order_id = ?
+            RETURNING order_id
             """,
             [filled_at, filled_avg_price, pnl, order_id],
-        )
+        ).fetchall()
+        if not rows:
+            warnings.warn(
+                f"update_fill: order_id={order_id!r} not found in trades table; fill record lost",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     def snapshot_positions(self, positions, strategy_name: str, account_name: str):
         now = datetime.now(timezone.utc)
