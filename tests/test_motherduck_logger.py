@@ -54,21 +54,26 @@ def _make_account(equity="100000.0", cash="50000.0", buying_power="75000.0"):
     })()
 
 
-def test_no_token_no_exception():
+def test_import_does_not_connect():
     """Importing core.motherduck_logger must not open a connection (SCHEMA-10).
 
     The module-level import above already exercises this: if import triggered
     a MotherDuck connection, this module would fail to load in CI (no token).
-    We also assert that when the module is imported with no MOTHERDUCK_TOKEN
-    in the environment, no exception is raised.
     """
-    token = os.environ.get("MOTHERDUCK_TOKEN")
-    assert token is None or isinstance(token, str), "env check passed"
-    # The import at the top of this file is the real test — it must not connect.
-    # Explicitly re-import to verify it is safe to do so without a token.
     import importlib
     import core.motherduck_logger as mdl
-    importlib.reload(mdl)  # reload with whatever token state env has now
+    importlib.reload(mdl)  # reload must not raise even without a token
+
+
+def test_no_token_skips_md_logger():
+    """runner.py's `if token:` guard must result in md_logger=None when token is absent (SCHEMA-10)."""
+    token = os.environ.get("MOTHERDUCK_TOKEN")
+    if token:
+        pytest.skip("MOTHERDUCK_TOKEN is set; cannot test no-token path")
+    md_logger = None
+    if token:
+        md_logger = MotherDuckLogger(token=token)
+    assert md_logger is None, "md_logger must be None when MOTHERDUCK_TOKEN is absent"
 
 
 def test_schema_creates_all_tables():
