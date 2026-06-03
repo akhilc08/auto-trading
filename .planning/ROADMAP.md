@@ -26,7 +26,7 @@ Three phases: get data flowing into MotherDuck, move execution to Flights, then 
 
 **Wave 1**
 
-  - [ ] 01-01-PLAN.md — MotherDuckLogger class + 4-table schema + duckdb pin (SCHEMA-01..10)
+  - [x] 01-01-PLAN.md — MotherDuckLogger class + 4-table schema + duckdb pin (SCHEMA-01..10)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -73,6 +73,6 @@ Three phases: get data flowing into MotherDuck, move execution to Flights, then 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Schema, Logger & Integration | 0/2 | Not started | - |
+| 1. Schema, Logger & Integration | 1/2 | In Progress|  |
 | 2. Flights | 0/? | Not started | - |
 | 3. Dives | 0/5 | Not started | - |
