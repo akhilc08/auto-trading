@@ -40,6 +40,64 @@ const compactUsd = (v: number) => {
   return `$${v.toFixed(0)}`;
 };
 
+// Compact tooltip: fixed width, sorted high→low, scrolls past ~12 series so it
+// never sprawls across the chart (the recharts default lists every series
+// unsorted and overflows with many strategies).
+function ChartTooltip(props: any) {
+  const { active, payload, label } = props;
+  if (!active || !payload || payload.length === 0) return null;
+  const items = [...payload]
+    .filter((p) => p.value != null)
+    .sort((a, b) => N(b.value) - N(a.value));
+  return (
+    <div
+      style={{
+        background: "#fff",
+        border: `1px solid ${GRID}`,
+        borderRadius: 8,
+        boxShadow: "0 2px 10px rgba(0,0,0,0.08)",
+        padding: "8px 10px",
+        fontSize: 11,
+        width: 210,
+        maxHeight: 230,
+        overflowY: "auto",
+      }}
+    >
+      <div style={{ color: MUTED, marginBottom: 6 }}>{label}</div>
+      {items.map((p) => (
+        <div
+          key={String(p.dataKey)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            lineHeight: 1.6,
+          }}
+        >
+          <span style={{ display: "flex", alignItems: "center", gap: 6, color: INK, minWidth: 0 }}>
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 9999,
+                background: p.color,
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {String(p.dataKey)}
+            </span>
+          </span>
+          <span style={{ fontVariantNumeric: "tabular-nums", color: INK, flexShrink: 0 }}>
+            {usd(p.value)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function EquityCurve() {
   // 90-day per-strategy cumulative P&L on a complete date spine.
   //
@@ -186,14 +244,9 @@ export default function EquityCurve() {
                 width={56}
               />
               <Tooltip
-                formatter={(v: number) => usd(v)}
-                contentStyle={{
-                  fontSize: 12,
-                  borderRadius: 8,
-                  border: `1px solid ${GRID}`,
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-                }}
-                labelStyle={{ color: MUTED }}
+                content={<ChartTooltip />}
+                wrapperStyle={{ zIndex: 10 }}
+                allowEscapeViewBox={{ x: true, y: false }}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} iconType="plainline" />
               {chartData.strategies.map((s, i) => (
