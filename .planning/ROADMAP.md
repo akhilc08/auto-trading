@@ -21,7 +21,9 @@ Three phases: get data flowing into MotherDuck, move execution to Flights, then 
   2. Submitting the same order twice results in one row, not two (`ON CONFLICT DO NOTHING`)
   3. Running without `MOTHERDUCK_TOKEN` works exactly as before — no exception, no change in behavior
   4. No file under `strategies/` is modified
-**Plans**: TBD
+**Plans**: 2 plans
+  - [ ] 01-01-PLAN.md — MotherDuckLogger class + 4-table schema + duckdb pin (SCHEMA-01..10)
+  - [ ] 01-02-PLAN.md — Wire logger into OrderManager + runner.py snapshots/fill-poll (INTEG-01..06)
 
 ### Phase 2: Flights
 **Goal**: All strategy execution and daily aggregation runs on MotherDuck compute — no local runner, no GitHub Actions
@@ -32,11 +34,7 @@ Three phases: get data flowing into MotherDuck, move execution to Flights, then 
   2. Manually triggering any execution Flight produces `trades`, `positions`, and `portfolio_snapshots` rows
   3. Triggering an execution Flight when the market is closed exits cleanly with no orders
   4. Manually triggering the aggregation Flight produces `daily_pnl` rows; re-running it produces the same count
-**Plans**: 4 plans
-- [ ] 02-01-secrets-PLAN.md — Alpaca creds as per-account DuckDB secrets + runtime read-back verification (SECRETS-01/02/03)
-- [ ] 02-02-exec-flight-stat-arb-PLAN.md — Reusable execution scaffold + exec-stat-arb Flight (EXEC-01/04/05/06/07/08)
-- [ ] 02-03-exec-flights-macro-trend-PLAN.md — exec-macro-vol + exec-trend-following Flights (EXEC-02/03)
-- [ ] 02-04-aggregation-flight-PLAN.md — daily-pnl-aggregation Flight, idempotent (AGG-01..06)
+**Plans**: TBD
 
 ### Phase 3: Dives
 **Goal**: Four Dives in MotherDuck make all trade, position, and performance data visible and interactive
@@ -56,6 +54,6 @@ Three phases: get data flowing into MotherDuck, move execution to Flights, then 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Schema, Logger & Integration | 0/? | Not started | - |
-| 2. Flights | 0/4 | Not started | - |
+| 1. Schema, Logger & Integration | 0/2 | Not started | - |
+| 2. Flights | 0/? | Not started | - |
 | 3. Dives | 0/? | Not started | - |
