@@ -72,6 +72,9 @@ None — plan executed as written.
 - `save_dive` returned a benign `database_warnings: ["Database 'e' not found"]` — a false positive where the catalog scanner misreads the `e.target.value` event-handler access as a table reference. The real query references only `"trading"."main"."trades"` (correctly listed in `unshared_databases`). Dive saved and is viewable; no action needed.
 - `trading` is unshared with the org — Dive is viewable by the creator; org sharing not performed (left to the user).
 
+## Post-Review Fix (WR-04)
+Code review confirmed the T-3-01 allow-list mitigation is sound, and recommended defense-in-depth so safety is local to the interpolation site rather than dependent on allow-list contents. **Added** a `/^[a-z0-9_]+$/` identifier assertion alongside `STRATEGIES.includes(strategy)` before interpolation. Committed in `f6a149b`; live Dive updated in place via `update_dive`. (WR-03 — show "—" for NULL filled_avg_price/pnl — left as an advisory follow-up, not applied.)
+
 ## Next Phase Readiness
 - DIVES-01 delivered; remaining Wave 2 Dives (03-03/04/05) are independent.
 

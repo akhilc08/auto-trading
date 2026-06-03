@@ -63,7 +63,7 @@ completed: 2026-06-03
 - `REQUIRED_DATABASES`: not needed.
 - DIVES-03 SQL row count at verification: 0 (date × strategy; `daily_pnl` empty).
 - Optional top-5/show-all toggle: **not added** (nice-to-have only).
-- Gap-fill: `COALESCE(sd.cumulative_pnl, 0)` eliminates holes.
+- Gap-fill: COALESCE the **per-day delta** to 0, then running `SUM(...) OVER (...)` over the spine — cumulative value carries forward across no-trade days (see Post-Review Fix below).
 
 ## Decisions Made
 - `type="linear"` lines per the MotherDuck design-system guide (overrides research's `monotone`).
@@ -71,6 +71,9 @@ completed: 2026-06-03
 
 ## Deviations from Plan
 None material — the optional toggle was explicitly optional and was omitted by design.
+
+## Post-Review Fix (CR-01)
+Code review flagged the original research SQL as a **must-have violation**: `COALESCE(cumulative_pnl, 0)` on the *cumulative* value resets the equity line to $0 on every no-trade day (weekends/holidays) — a sawtooth, not a continuous curve, contradicting the DIVES-03 "continuous line, not a hole" criterion. **Fixed** by COALESCE-ing the per-day `realized_pnl` delta to 0 and computing the running `SUM(...) OVER (PARTITION BY strategy_name ORDER BY trade_date)` over the gap-filled spine, so the cumulative value carries forward across gaps. Proven via a synthetic MCP query (trades day 1 +100, day 4 +50 → cumulative `100,100,100,150,150`, no reset). Also folded in IN-01 (window the `strategies` CTE to the 90-day range) and WR-02 (dropped the unstable JS date re-sort; rely on SQL `ORDER BY`). Committed in `f6a149b`; live Dive updated in place via `update_dive`.
 
 ## Issues Encountered
 - `trading` unshared with the org (viewable by creator; org sharing left to the user). No catalog warnings.
