@@ -32,7 +32,11 @@ Three phases: get data flowing into MotherDuck, move execution to Flights, then 
   2. Manually triggering any execution Flight produces `trades`, `positions`, and `portfolio_snapshots` rows
   3. Triggering an execution Flight when the market is closed exits cleanly with no orders
   4. Manually triggering the aggregation Flight produces `daily_pnl` rows; re-running it produces the same count
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 02-01-secrets-PLAN.md — Alpaca creds as per-account DuckDB secrets + runtime read-back verification (SECRETS-01/02/03)
+- [ ] 02-02-exec-flight-stat-arb-PLAN.md — Reusable execution scaffold + exec-stat-arb Flight (EXEC-01/04/05/06/07/08)
+- [ ] 02-03-exec-flights-macro-trend-PLAN.md — exec-macro-vol + exec-trend-following Flights (EXEC-02/03)
+- [ ] 02-04-aggregation-flight-PLAN.md — daily-pnl-aggregation Flight, idempotent (AGG-01..06)
 
 ### Phase 3: Dives
 **Goal**: Four Dives in MotherDuck make all trade, position, and performance data visible and interactive
@@ -53,5 +57,5 @@ Three phases: get data flowing into MotherDuck, move execution to Flights, then 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Schema, Logger & Integration | 0/? | Not started | - |
-| 2. Flights | 0/? | Not started | - |
+| 2. Flights | 0/4 | Not started | - |
 | 3. Dives | 0/? | Not started | - |
