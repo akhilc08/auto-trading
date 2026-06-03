@@ -30,29 +30,29 @@
 
 ### Secrets
 
-- [ ] **SECRETS-01**: Alpaca API key and secret for each account (`stat_arb`, `macro_vol`, `trend_following`) are stored as DuckDB secrets in MotherDuck using `CREATE OR REPLACE SECRET`
-- [ ] **SECRETS-02**: Execution Flights read Alpaca credentials from MotherDuck secrets at runtime — no credentials in Flight `config` or `source_code`
-- [ ] **SECRETS-03**: Secrets are scoped per account so each Flight only reads the credentials it needs
+- [x] **SECRETS-01**: Alpaca API key and secret for each account (`stat_arb`, `macro_vol`, `trend_following`) are stored as DuckDB secrets in MotherDuck using `CREATE OR REPLACE SECRET`
+- [x] **SECRETS-02**: Execution Flights read Alpaca credentials from MotherDuck secrets at runtime — no credentials in Flight `config` or `source_code`
+- [x] **SECRETS-03**: Secrets are scoped per account so each Flight only reads the credentials it needs
 
 ### Execution Flights
 
-- [ ] **EXEC-01**: A MotherDuck Flight named `exec-stat-arb` runs the stat_arb account strategies (stat_arb, stat_arb_v2, stat_arb_v3, market_neutral, market_neutral_v2) with their strategy logic bundled in the Flight source
-- [ ] **EXEC-02**: A MotherDuck Flight named `exec-macro-vol` runs the macro_vol account strategies (vol_risk_premium) with strategy logic bundled in the Flight source
-- [ ] **EXEC-03**: A MotherDuck Flight named `exec-trend-following` runs the trend_following account strategies (trend_following, trend_following_v2, multi_factor_equity, multi_factor_equity_v2, regime_switching, post_earnings_drift, rl_alpha, deep_learning, alt_data_fusion) with strategy logic bundled in the Flight source
-- [ ] **EXEC-04**: Each execution Flight reads Alpaca credentials from MotherDuck secrets and connects to the Alpaca API before executing strategies
-- [ ] **EXEC-05**: Each execution Flight connects to MotherDuck via `duckdb.connect("md:")` and writes trades, positions, and portfolio snapshots using `MotherDuckLogger` logic (bundled inline)
-- [ ] **EXEC-06**: Each execution Flight is scheduled at the appropriate market-hours cron (UTC) for its account's strategies
-- [ ] **EXEC-07**: Execution Flights call `alpaca.get_clock().is_open` as a market-hours guard and exit cleanly when the market is closed
-- [ ] **EXEC-08**: Execution Flights use `duckdb==1.5.2` and `alpaca-trade-api` pinned in `requirements_txt`
+- [x] **EXEC-01**: A MotherDuck Flight named `exec-stat-arb` runs the stat_arb account strategies (stat_arb, stat_arb_v2, stat_arb_v3, market_neutral, market_neutral_v2) with their strategy logic bundled in the Flight source
+- [x] **EXEC-02**: A MotherDuck Flight named `exec-macro-vol` runs the macro_vol account strategies (vol_risk_premium) with strategy logic bundled in the Flight source
+- [x] **EXEC-03**: A MotherDuck Flight named `exec-trend-following` runs the trend_following account strategies (trend_following, trend_following_v2, multi_factor_equity, multi_factor_equity_v2, regime_switching, post_earnings_drift, rl_alpha, deep_learning, alt_data_fusion) with strategy logic bundled in the Flight source
+- [x] **EXEC-04**: Each execution Flight reads Alpaca credentials from MotherDuck secrets and connects to the Alpaca API before executing strategies
+- [x] **EXEC-05**: Each execution Flight connects to MotherDuck via `duckdb.connect("md:")` and writes trades, positions, and portfolio snapshots using `MotherDuckLogger` logic (bundled inline)
+- [x] **EXEC-06**: Each execution Flight is scheduled at the appropriate market-hours cron (UTC) for its account's strategies
+- [x] **EXEC-07**: Execution Flights call `alpaca.get_clock().is_open` as a market-hours guard and exit cleanly when the market is closed
+- [x] **EXEC-08**: Execution Flights use `duckdb==1.5.2` and `alpaca-trade-api` pinned in `requirements_txt`
 
 ### Aggregation Flight
 
-- [ ] **AGG-01**: A MotherDuck Flight named `daily-pnl-aggregation` reads `trades` and writes aggregated rows to `daily_pnl`
-- [ ] **AGG-02**: Flight aggregates only `WHERE status = 'filled'` trades for the prior trading day
-- [ ] **AGG-03**: Flight is scheduled at 6 PM ET Mon–Fri (`"0 23 * * 1-5"` UTC summer / `"0 22 * * 1-5"` winter)
-- [ ] **AGG-04**: Flight uses `duckdb==1.5.2` pinned in `requirements_txt`
-- [ ] **AGG-05**: Flight aggregation is idempotent — re-running on the same date overwrites via `ON CONFLICT (date, strategy_name, account_name) DO UPDATE`
-- [ ] **AGG-06**: Flight uses a service account token via `access_token_name`
+- [x] **AGG-01**: A MotherDuck Flight named `daily-pnl-aggregation` reads `trades` and writes aggregated rows to `daily_pnl`
+- [x] **AGG-02**: Flight aggregates only `WHERE status = 'filled'` trades for the prior trading day
+- [x] **AGG-03**: Flight is scheduled at 6 PM ET Mon–Fri (`"0 23 * * 1-5"` UTC summer / `"0 22 * * 1-5"` winter)
+- [x] **AGG-04**: Flight uses `duckdb==1.5.2` pinned in `requirements_txt`
+- [x] **AGG-05**: Flight aggregation is idempotent — re-running on the same date overwrites via `ON CONFLICT (date, strategy_name, account_name) DO UPDATE`
+- [x] **AGG-06**: Flight uses a service account token via `access_token_name`
 
 ### Dives
 

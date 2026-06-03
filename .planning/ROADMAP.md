@@ -7,7 +7,7 @@ Three phases: get data flowing into MotherDuck, move execution to Flights, then 
 ## Phases
 
 - [x] **Phase 1: Schema, Logger & Integration** - Tables, logger class, wired into OrderManager and runner.py (completed 2026-06-03)
-- [ ] **Phase 2: Flights** - DuckDB secrets for Alpaca keys, 3 execution Flights + 1 aggregation Flight
+- [x] **Phase 2: Flights** - DuckDB secrets for Alpaca keys, 3 execution Flights + 1 aggregation Flight (completed 2026-06-03)
 - [ ] **Phase 3: Dives** - Four interactive visualizations over live trade and performance data
 
 ## Phase Details
@@ -74,5 +74,5 @@ Three phases: get data flowing into MotherDuck, move execution to Flights, then 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Schema, Logger & Integration | 2/2 | Complete    | 2026-06-03 |
-| 2. Flights | 1/4 | In Progress|  |
+| 2. Flights | 4/4 | Complete    | 2026-06-03 |
 | 3. Dives | 0/5 | Not started | - |
