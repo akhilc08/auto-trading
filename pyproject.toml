@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auto-trading"
+version = "0.2.0"
+description = "Automated trading strategies with MotherDuck logging and execution Flights"
+requires-python = ">=3.10"
+dependencies = [
+    "alpaca-py>=0.8.0",
+    "python-dotenv>=1.0.0",
+    "APScheduler>=3.10.0",
+    "numpy>=1.24.0",
+    "statsmodels>=0.14.0",
+    "pandas>=2.0.0",
+    "duckdb==1.5.2",
+]
+
+# Flat layout: core/, strategies/, flights/ are top-level packages at the repo root.
+# Installing the repo (e.g. git+https://github.com/akhilc08/auto-trading.git) makes them
+# importable inside a MotherDuck execution Flight, which runs a single-file entrypoint.
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "strategies*", "flights*"]
