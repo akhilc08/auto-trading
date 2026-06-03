@@ -28,12 +28,18 @@ const STRATEGIES = [
 export default function TradeLog() {
   const [strategy, setStrategy] = useDiveState<string>("strategy", "all");
 
-  // Only interpolate a value that is in the closed allow-list; anything else
-  // (including "all" or a tampered URL value) falls back to no filter.
-  const whereClause =
-    strategy !== "all" && STRATEGIES.includes(strategy)
-      ? `AND strategy_name = '${strategy}'`
-      : "";
+  // T-3-01: only interpolate a value from the closed allow-list AND matching a
+  // strict identifier pattern. The regex keeps safety local to the interpolation
+  // site (defense-in-depth) rather than depending on allow-list contents — if a
+  // future strategy name ever contained a quote/metacharacter it still cannot
+  // reach the SQL. Anything else (incl. "all" or a tampered URL value) → no filter.
+  const isSafeStrategy =
+    strategy !== "all" &&
+    STRATEGIES.includes(strategy) &&
+    /^[a-z0-9_]+$/.test(strategy);
+  const whereClause = isSafeStrategy
+    ? `AND strategy_name = '${strategy}'`
+    : "";
 
   const { data, isLoading, isError } = useSQLQuery(`
     SELECT

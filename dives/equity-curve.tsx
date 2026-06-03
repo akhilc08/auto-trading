@@ -22,10 +22,14 @@ const LINE_COLORS = [
 ];
 
 export default function EquityCurve() {
-  // 90-day per-strategy cumulative P&L on a complete date spine. The
-  // date_spine CROSS JOIN strategies LEFT JOIN cumulative-P&L with
-  // COALESCE(...,0) guarantees one row per (date, strategy) so the recharts
-  // lines have no time-axis gaps (recharts does not interpolate missing dates).
+  // 90-day per-strategy cumulative P&L on a complete date spine.
+  //
+  // Gap-fill the *per-day* realized_pnl delta to 0 (no trades = no P&L change),
+  // THEN compute the running SUM over the full spine. This keeps the cumulative
+  // line flat across no-trade days (weekends/holidays) instead of collapsing it
+  // to $0 — COALESCE on the cumulative value would produce a sawtooth (CR-01).
+  // The CROSS JOIN spine guarantees one row per (date, strategy), so recharts
+  // has no missing dates to gap.
   const { data, isLoading, isError } = useSQLQuery(`
     WITH date_spine AS (
       SELECT unnest(generate_series(
@@ -34,40 +38,43 @@ export default function EquityCurve() {
         INTERVAL 1 DAY
       ))::DATE AS trade_date
     ),
-    strategy_daily AS (
-      SELECT
-        date AS trade_date,
-        strategy_name,
-        SUM(realized_pnl) OVER (
-          PARTITION BY strategy_name
-          ORDER BY date
-          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        ) AS cumulative_pnl
+    strategies AS (
+      SELECT DISTINCT strategy_name
       FROM "trading"."main"."daily_pnl"
       WHERE date >= current_date - INTERVAL 89 DAY
-    ),
-    strategies AS (
-      SELECT DISTINCT strategy_name FROM "trading"."main"."daily_pnl"
     ),
     spine_cross AS (
       SELECT d.trade_date, s.strategy_name
       FROM date_spine d CROSS JOIN strategies s
+    ),
+    daily AS (
+      SELECT
+        sc.trade_date,
+        sc.strategy_name,
+        COALESCE(dp.realized_pnl, 0) AS realized_pnl
+      FROM spine_cross sc
+      LEFT JOIN "trading"."main"."daily_pnl" dp
+        ON dp.date = sc.trade_date
+        AND dp.strategy_name = sc.strategy_name
     )
     SELECT
-      strftime(sc.trade_date, '%Y-%m-%d') AS trade_date,
-      sc.strategy_name,
-      COALESCE(sd.cumulative_pnl, 0) AS cumulative_pnl
-    FROM spine_cross sc
-    LEFT JOIN strategy_daily sd
-      ON sc.trade_date = sd.trade_date
-      AND sc.strategy_name = sd.strategy_name
-    ORDER BY sc.trade_date, sc.strategy_name
+      strftime(trade_date, '%Y-%m-%d') AS trade_date,
+      strategy_name,
+      SUM(realized_pnl) OVER (
+        PARTITION BY strategy_name
+        ORDER BY trade_date
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) AS cumulative_pnl
+    FROM daily
+    ORDER BY trade_date, strategy_name
   `);
 
   const rows = Array.isArray(data) ? data : [];
 
-  // Pivot long-format rows (date, strategy, value) to wide format
-  // (one object per date with each strategy as a key) — recharts needs wide.
+  // Pivot long-format rows (date, strategy, value) to wide format (one object
+  // per date with each strategy as a key) — recharts needs wide. The SQL
+  // already emits rows in (trade_date, strategy_name) order, so insertion order
+  // is chronological; no JS re-sort needed.
   const chartData = useMemo(() => {
     const byDate: Record<string, Record<string, number | string>> = {};
     const strategies = new Set<string>();
@@ -79,9 +86,7 @@ export default function EquityCurve() {
       strategies.add(strat);
     }
     return {
-      data: Object.values(byDate).sort((a, b) =>
-        String(a.trade_date) > String(b.trade_date) ? 1 : -1
-      ),
+      data: Object.values(byDate),
       strategies: Array.from(strategies),
     };
   }, [rows]);
