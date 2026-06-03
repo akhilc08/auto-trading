@@ -1,0 +1,5 @@
+duckdb==1.5.2
+alpaca-py>=0.8.0
+numpy>=1.24.0
+pandas>=2.0.0
+statsmodels>=0.14.0
