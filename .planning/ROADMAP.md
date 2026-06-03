@@ -46,7 +46,12 @@ Three phases: get data flowing into MotherDuck, move execution to Flights, then 
   3. Equity curve Dive shows per-strategy cumulative P&L with no time-series gaps
   4. Strategy comparison Dive shows Sharpe, drawdown, win rate, trade count, total P&L for all strategies
 **UI hint**: yes
-**Plans**: TBD
+**Plans**: 5 plans
+  - [ ] 03-01-PLAN.md — Shared conventions, dives/ dir, STRATEGIES allow-list, SQL pre-flight + MCP Wave 0 gate (DIVES-01..04)
+  - [ ] 03-02-PLAN.md — Trade log Dive: 90-day trades, useDiveState strategy filter, color-coded pnl (DIVES-01)
+  - [ ] 03-03-PLAN.md — Live positions Dive: latest snapshot per strategy, green/red unrealized P&L (DIVES-02)
+  - [ ] 03-04-PLAN.md — Equity curve Dive: generate_series gap-fill, recharts multi-line (DIVES-03)
+  - [ ] 03-05-PLAN.md — Strategy comparison Dive: Sharpe/drawdown/win-rate/count/total-P&L table (DIVES-04)
 
 ## Progress
 
@@ -56,4 +61,4 @@ Three phases: get data flowing into MotherDuck, move execution to Flights, then 
 |-------|----------------|--------|-----------|
 | 1. Schema, Logger & Integration | 0/2 | Not started | - |
 | 2. Flights | 0/? | Not started | - |
-| 3. Dives | 0/? | Not started | - |
+| 3. Dives | 0/5 | Not started | - |
