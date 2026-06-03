@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Grid search for the market-neutral mean reversion strategy.
 Goal: beat S&P 500 ~8% annual return with Sharpe > 1.5, MaxDD < 25%, WinRate > 55%.

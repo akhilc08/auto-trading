@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Grid search for the trend following strategy.
 Goal: beat 8% annual return with Sharpe > 1.0 and max DD < 30%.

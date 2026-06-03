@@ -197,6 +197,120 @@ def test_stat_arb_crisis_blackout_suppresses_entries(monkeypatch):
     assert len(client.orders) > 0, "entry must proceed when there is no crisis blackout"
 
 
+def test_stat_arb_trades_on_single_on_bar(monkeypatch):
+    # Regression: on_bar must NOT early-return after formation. The one-shot Flight calls on_bar
+    # exactly once, so _update (the only path to an order) has to run on that same call.
+    import strategies.stat_arb.strategy as sa
+    from strategies.stat_arb.spread import KalmanSpread
+    from strategies.stat_arb.signals import PairPosition, SignalResult
+
+    strat, cm, client = _build("stat_arb")
+    kal = KalmanSpread(delta=cm.KALMAN_DELTA, obs_noise=cm.KALMAN_OBS_NOISE)
+    pair = sa._PairState("AAA", "BBB", kal, innov_buf=[0.0] * 60, position=PairPosition.NONE)
+
+    def fake_formation():
+        strat._pairs = [pair]
+        strat._initialized = True
+
+    monkeypatch.setattr(strat, "_run_formation", fake_formation)
+    monkeypatch.setattr(sa, "compute_signal", lambda **kw: SignalResult.ENTER_LONG)
+
+    strat.on_bar({"AAA": [_Bar(100.0, None)], "BBB": [_Bar(50.0, None)]})
+    assert len(client.orders) > 0, "stat_arb must place an order on its single one-shot on_bar call"
+
+
+def test_multi_factor_rebalances_on_first_trading_day_of_month():
+    strat, cm, client = _build("multi_factor_equity")
+    # Mock history spans 2024-01-01..~2024-10; a live bar dated in a later month is that month's
+    # first trading day, so the calendar gate opens and the strategy rebalances.
+    d = datetime.datetime(2024, 12, 2, tzinfo=datetime.timezone.utc)
+    strat.on_bar({s: [_Bar(100.0, d)] for s in cm.SYMBOLS})
+    assert len(client.orders) > 0, "multi_factor must rebalance on the first trading day of the month"
+
+
+def test_multi_factor_skips_mid_month():
+    strat, cm, client = _build("multi_factor_equity")
+    # 2024-01-15 has earlier January trading days in the mock history -> not a rebalance day.
+    d = datetime.datetime(2024, 1, 15, tzinfo=datetime.timezone.utc)
+    strat.on_bar({s: [_Bar(100.0, d)] for s in cm.SYMBOLS})
+    assert len(client.orders) == 0, "multi_factor must not rebalance mid-month"
+
+
+def _trending_spy():
+    return [100.0 * (1.001 ** i) for i in range(252)]
+
+
+def test_regime_switching_trades_when_confirmed(monkeypatch):
+    import strategies.regime_switching.strategy as rs
+
+    strat, cm, client = _build("regime_switching")
+    monkeypatch.setattr(rs, "fetch_vix", lambda: (15.0, 16.0))
+    monkeypatch.setattr(strat, "_spy_history", _trending_spy)
+    monkeypatch.setattr(rs, "fetch_vix_series", lambda n: ([15.0] * n, [16.0] * n))
+
+    strat.on_bar({s: [_Bar(100.0, None)] for s in cm.SYMBOLS})
+    assert len(client.orders) > 0, "regime_switching must place orders once the regime is confirmed"
+
+
+def test_regime_switching_idempotent_when_already_positioned(monkeypatch):
+    import strategies.regime_switching.strategy as rs
+
+    strat, cm, client = _build("regime_switching")
+    monkeypatch.setattr(rs, "fetch_vix", lambda: (15.0, 16.0))
+    monkeypatch.setattr(strat, "_spy_history", _trending_spy)
+    monkeypatch.setattr(rs, "fetch_vix_series", lambda n: ([15.0] * n, [16.0] * n))
+    # Already holding QQQ (the TRENDING target) -> no churn.
+    held = type("P", (), {"symbol": "QQQ"})()
+    monkeypatch.setattr(client.trading, "get_all_positions", lambda: [held])
+
+    strat.on_bar({s: [_Bar(100.0, None)] for s in cm.SYMBOLS})
+    assert len(client.orders) == 0, "must not re-trade when already in the target regime allocation"
+
+
+def test_regime_switching_holds_when_unconfirmed(monkeypatch):
+    import strategies.regime_switching.strategy as rs
+
+    strat, cm, client = _build("regime_switching")
+    monkeypatch.setattr(rs, "fetch_vix", lambda: (15.0, 16.0))
+    monkeypatch.setattr(strat, "_spy_history", _trending_spy)
+    # VIX history unavailable -> regime cannot be confirmed -> hold, no orders.
+    monkeypatch.setattr(rs, "fetch_vix_series", lambda n: (None, None))
+
+    strat.on_bar({s: [_Bar(100.0, None)] for s in cm.SYMBOLS})
+    assert len(client.orders) == 0, "unconfirmed regime must not trade"
+
+
+def test_order_manager_rejects_invalid_qty():
+    client = MockClient()
+    om = OrderManager(client=client, logger=_NullLogger())
+    assert om.buy("AAPL", 0) is None
+    assert om.sell("AAPL", -5) is None
+    assert om.short_sell("AAPL", float("nan")) is None
+    assert client.orders == [], "no order may be submitted for non-positive/non-finite qty"
+    assert om.buy("AAPL", 3) is not None, "a valid qty must still submit"
+
+
+def test_daily_pnl_realized_from_fills():
+    from flights.aggregation.daily_pnl import _realized_metrics
+
+    d1, d2 = datetime.date(2024, 1, 2), datetime.date(2024, 1, 3)
+    long_round_trip = [
+        ("s", "a", "AAPL", "buy", 10, 100.0, d1),
+        ("s", "a", "AAPL", "sell", 10, 110.0, d2),
+    ]
+    m = _realized_metrics(long_round_trip)
+    assert m[("s", "a", d2)]["realized"] == 100.0   # (110-100)*10
+    assert m[("s", "a", d2)]["wins"] == 1
+    assert m[("s", "a", d1)]["realized"] == 0.0      # opening leg realizes nothing
+
+    short_round_trip = [
+        ("s", "a", "TSLA", "sell", 5, 200.0, d1),    # open short
+        ("s", "a", "TSLA", "buy", 5, 180.0, d2),     # cover
+    ]
+    m2 = _realized_metrics(short_round_trip)
+    assert m2[("s", "a", d2)]["realized"] == 100.0   # (200-180)*5 cover profit
+
+
 def test_pead_short_qty_is_whole_shares(monkeypatch):
     strat, cm, client = _build("post_earnings_drift")
     target = cm.SYMBOLS[0]

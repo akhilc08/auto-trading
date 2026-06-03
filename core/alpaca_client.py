@@ -36,7 +36,9 @@ class AlpacaClient:
             timeframe=timeframe,
             start=datetime.datetime.now(datetime.timezone.utc) - lookback,
         )
-        return self.data.get_stock_bars(request)
+        # Return the plain {symbol: [Bar, ...]} dict so consumers can use both
+        # `symbol in bars` and `bars[symbol]` (a raw BarSet supports neither).
+        return self.data.get_stock_bars(request).data
 
     def get_historical_bars(
         self,
@@ -52,7 +54,7 @@ class AlpacaClient:
             timeframe=timeframe,
             start=start,
         )
-        return self.data.get_stock_bars(request)
+        return self.data.get_stock_bars(request).data
 
     def get_stream(self) -> StockDataStream:
         return StockDataStream(

@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import date
+from logging.handlers import TimedRotatingFileHandler
 
 
 def get_logger(strategy_name: str) -> logging.Logger:
@@ -18,7 +18,13 @@ def get_logger(strategy_name: str) -> logging.Logger:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    fh = logging.FileHandler(os.path.join(log_dir, f"{date.today()}.log"))
+    # Roll at local midnight so a long-running scheduler process produces one
+    # file per day (a static date-in-name FileHandler would keep writing to the
+    # process's start-date file forever). Rolled files get a YYYY-MM-DD suffix.
+    fh = TimedRotatingFileHandler(
+        os.path.join(log_dir, "strategy.log"), when="midnight", backupCount=30
+    )
+    fh.suffix = "%Y-%m-%d"
     fh.setFormatter(formatter)
     logger.addHandler(fh)
 

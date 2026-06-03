@@ -1,8 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Watchdog: starts all 9 strategies as subprocesses and keeps them running indefinitely.
 Restarts any that crash with exponential backoff. Logs a performance snapshot daily at 4:30 PM ET.
-Usage:  python scripts/watchdog.py [--mode paper|live]
+Usage:  python3 scripts/watchdog.py [--mode paper|live]
 Setup:  run scripts/setup_autostart.sh once to have this launch automatically on boot.
 Stop:   Ctrl-C or kill the watchdog PID (it will cleanly terminate all child processes).
 """
@@ -65,6 +65,7 @@ class ProcessWatcher:
         self.retries: int = 0
         self.start_time: float = 0.0
         self.restart_after: float = 0.0
+        self.gave_up: bool = False
 
     def start(self):
         log_path = LOG_DIR / f"{self.name}.log"
@@ -82,7 +83,7 @@ class ProcessWatcher:
         log.info(f"[{self.name}] started pid={self.process.pid}")
 
     def tick(self, now: float):
-        if self.process is None:
+        if self.process is None or self.gave_up:
             return
 
         if self.process.poll() is None:
@@ -95,9 +96,18 @@ class ProcessWatcher:
         # process has exited
         if self.restart_after == 0.0:
             rc = self.process.returncode
+            if self.retries >= MAX_RETRIES:
+                # Deterministically-broken strategy: stop relaunching it so it
+                # surfaces as a hard failure instead of flapping forever.
+                self.gave_up = True
+                log.error(
+                    f"[{self.name}] exited (code={rc}); gave up after {MAX_RETRIES} "
+                    f"consecutive failures — not restarting. Fix it and restart the watchdog."
+                )
+                return
             backoff = min(BACKOFF_BASE * (2 ** self.retries), BACKOFF_MAX)
             self.restart_after = now + backoff
-            self.retries = min(self.retries + 1, MAX_RETRIES)
+            self.retries += 1
             log.warning(
                 f"[{self.name}] exited (code={rc}), retry #{self.retries} in {backoff:.0f}s"
             )

@@ -38,8 +38,12 @@ class TrendFollowingStrategy(BaseStrategy):
         self._states: dict[str, _InstrumentState] = {
             sym: _InstrumentState(symbol=sym) for sym in config.SYMBOLS
         }
+        self._formed = False
 
     def on_bar(self, bars) -> None:
+        if not self._formed:
+            self._run_formation()
+            self._formed = True
         for symbol, state in self._states.items():
             price = self._latest_close(bars, symbol)
             if price is None:
@@ -100,6 +104,44 @@ class TrendFollowingStrategy(BaseStrategy):
                     self._enter(state, price, InstrumentPosition.SHORT)
             else:
                 state.bars_held += 1
+
+    def _run_formation(self) -> None:
+        """Warm EMAs / ATR / return buffers from historical bars so live signals
+        match the backtest. Without this the EMAs cold-start equal (fast==slow)
+        and take ~SLOW_WINDOW live days to diverge, and every process restart
+        resets the warmup."""
+        n_days = (
+            max(self.config.SLOW_WINDOW, self.config.VOL_LOOKBACK, self.config.ATR_WINDOW) + 10
+        )
+        try:
+            hist = self.client.get_historical_bars(self.config.SYMBOLS, n_days)
+        except Exception as e:
+            self.logger.error(f"Failed to preload history: {e}")
+            return
+        for symbol, state in self._states.items():
+            try:
+                closes = [float(b.close) for b in hist[symbol]]
+            except (KeyError, IndexError, TypeError):
+                continue
+            if len(closes) < 2:
+                continue
+            state.fast_ema = closes[0]
+            state.slow_ema = closes[0]
+            state.prev_price = closes[0]
+            for price in closes[1:]:
+                state.fast_ema = update_ema(state.fast_ema, price, self._alpha_f)
+                state.slow_ema = update_ema(state.slow_ema, price, self._alpha_s)
+                daily_move = abs(price - state.prev_price)
+                state.atr_buf.append(daily_move)
+                if len(state.atr_buf) > self.config.ATR_WINDOW:
+                    state.atr_buf.pop(0)
+                if state.prev_price > 1e-10:
+                    state.returns_buf.append(math.log(price / state.prev_price))
+                if len(state.returns_buf) > self.config.VOL_LOOKBACK:
+                    state.returns_buf.pop(0)
+                state.prev_price = price
+            state.initialized = True
+        self.logger.info("Formation complete: EMAs/ATR warmed from history")
 
     def _enter(self, state: _InstrumentState, price: float, direction: InstrumentPosition) -> None:
         rvol = compute_realized_vol(np.array(state.returns_buf)) if state.returns_buf else 0.0

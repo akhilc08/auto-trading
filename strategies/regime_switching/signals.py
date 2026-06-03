@@ -21,20 +21,46 @@ class RegimeState:
     confidence: float
 
 
-def fetch_vix() -> tuple[float, float]:
-    """(VIX, VIX3M). Falls back to (18.0, 20.0) on failure."""
+def _last_closes(symbol: str, n: int) -> list[float]:
+    df = yf.download(symbol, period=f"{n + 10}d", interval="1d", progress=False, auto_adjust=False)
+    close = df["Close"]
+    # Modern yfinance returns MultiIndex columns even for a single ticker, which
+    # makes df["Close"] a DataFrame; take its first (only) column.
+    if hasattr(close, "columns"):
+        close = close.iloc[:, 0]
+    return [float(x) for x in close.dropna().tolist()[-n:]]
+
+
+def _last_close(symbol: str) -> float:
+    return _last_closes(symbol, 1)[-1]
+
+
+def fetch_vix_series(n: int) -> tuple[list[float] | None, list[float] | None]:
+    """Last n daily closes of (^VIX, ^VIX3M), oldest-first, or (None, None) on failure.
+
+    Lets the regime strategy confirm a regime has held for several days without persisting
+    state across one-shot Flight runs (which each start from a cold __init__).
+    """
     try:
-        vix = float(
-            yf.download("^VIX", period="5d", interval="1d", progress=False, auto_adjust=False)
-            ["Close"].dropna().iloc[-1]
-        )
-        vix3m = float(
-            yf.download("^VIX3M", period="5d", interval="1d", progress=False, auto_adjust=False)
-            ["Close"].dropna().iloc[-1]
-        )
-        return vix, vix3m
+        vix = _last_closes("^VIX", n)
+        vix3m = _last_closes("^VIX3M", n)
     except Exception:
-        return 18.0, 20.0
+        return None, None
+    if len(vix) < n or len(vix3m) < n:
+        return None, None
+    return vix, vix3m
+
+
+def fetch_vix() -> tuple[float | None, float | None]:
+    """(VIX, VIX3M), or (None, None) when the data is unavailable.
+
+    Returns None on failure rather than fabricating (18.0, 20.0) — fake calm
+    values would silently disable the VIX-driven RISK_OFF/CRISIS detection.
+    """
+    try:
+        return _last_close("^VIX"), _last_close("^VIX3M")
+    except Exception:
+        return None, None
 
 
 def detect_regime(

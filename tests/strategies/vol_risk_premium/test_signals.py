@@ -1,7 +1,9 @@
 import math
+from unittest.mock import patch
+
 import pytest
 
-from strategies.vol_risk_premium.signals import Signal, compute_signal, realized_vol
+from strategies.vol_risk_premium.signals import Signal, compute_signal, fetch_vix, realized_vol
 
 
 def _sig(vix, vix3m, rv, vix_crisis=35.0, vix_caution=25.0, entry=0.40, full=0.70):
@@ -51,6 +53,23 @@ def test_realized_vol_calculation():
     rv = realized_vol(returns)
     expected = math.sqrt(252) * 0.01
     assert abs(rv - expected) < 1e-6
+
+
+def test_fetch_vix_returns_none_on_failure():
+    # Must NOT fabricate (18, 20) — that drives real short-vol BUYs on fake data.
+    with patch("strategies.vol_risk_premium.signals.yf.download", side_effect=Exception("net")):
+        assert fetch_vix() == (None, None)
+
+
+def test_fetch_vix_handles_multiindex_columns():
+    import pandas as pd
+
+    idx = pd.date_range("2024-01-01", periods=3, freq="D")
+    df = pd.DataFrame({("Close", "^VIX"): [10.0, 11.0, 13.0]}, index=idx)
+    df.columns = pd.MultiIndex.from_tuples(df.columns)
+    with patch("strategies.vol_risk_premium.signals.yf.download", return_value=df):
+        vix, vix3m = fetch_vix()
+    assert vix == 13.0 and vix3m == 13.0
 
 
 def test_caution_zone_caps_at_moderate():

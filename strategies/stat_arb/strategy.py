@@ -2,6 +2,7 @@ import math
 from dataclasses import dataclass, field
 
 import numpy as np
+from alpaca.data.timeframe import TimeFrame
 
 from core.base_strategy import BaseStrategy
 from strategies.stat_arb.pair_selector import is_valid_pair
@@ -30,8 +31,14 @@ class StatArbStrategy(BaseStrategy):
         self._initialized = False
         self._pairs: list[_PairState] = []
         self._rolling_window = getattr(config, "ROLLING_WINDOW", _ROLLING_WINDOW)
+        self._prev_proxy_close: float | None = None
 
     def on_bar(self, bars) -> None:
+        # Formation, then evaluate/trade on the SAME call. The Flight runs one-shot (on_bar is
+        # called exactly once per fire, with no state persisted), so an early return after
+        # formation would mean _update — the only path to any order — never runs and the
+        # strategy would never trade. In the persistent runner this also works: the first call
+        # does formation + _update, subsequent calls do _update.
         if not self._initialized:
             self._run_formation()
         self._update(bars)
@@ -39,6 +46,9 @@ class StatArbStrategy(BaseStrategy):
     def _run_formation(self) -> None:
         self.logger.info("Running formation: fetching historical bars...")
         all_symbols = list({s for pair in self.config.PAIRS for s in pair})
+        proxy = getattr(self.config, "MARKET_PROXY", None)
+        if proxy and proxy not in all_symbols:
+            all_symbols.append(proxy)
         hist = self.client.get_historical_bars(all_symbols, self.config.FORMATION_DAYS)
 
         log_prices: dict[str, np.ndarray] = {}
@@ -58,7 +68,7 @@ class StatArbStrategy(BaseStrategy):
             lp_a = log_prices[sym_a]
             lp_b = log_prices[sym_b]
             n = min(len(lp_a), len(lp_b))
-            if n < 60:
+            if n < max(60, self._rolling_window):
                 self.logger.warning(
                     f"Insufficient history for {sym_a}/{sym_b} ({n} bars), skipping"
                 )
@@ -93,10 +103,18 @@ class StatArbStrategy(BaseStrategy):
                 f"Pair {sym_a}/{sym_b} added to book (β={kalman.beta:.4f})"
             )
 
+        if proxy:
+            try:
+                self._prev_proxy_close = float(hist[proxy][-1].close)
+            except (KeyError, IndexError, TypeError):
+                self._prev_proxy_close = None
+
         self.logger.info(f"Formation complete: {len(self._pairs)} active pairs")
         self._initialized = True
 
     def _update(self, bars) -> None:
+        blackout = self._crisis_blackout(bars)
+
         for pair in self._pairs:
             if pair.cooldown_bars > 0:
                 pair.cooldown_bars -= 1
@@ -128,9 +146,9 @@ class StatArbStrategy(BaseStrategy):
                 f"{pair.symbol_a}/{pair.symbol_b} z={zscore:.3f} pos={pair.position.value} signal={signal.value}"
             )
 
-            if signal is SignalResult.ENTER_LONG and pair.cooldown_bars == 0:
+            if signal is SignalResult.ENTER_LONG and pair.cooldown_bars == 0 and not blackout:
                 self._enter_long(pair, price_a, price_b)
-            elif signal is SignalResult.ENTER_SHORT and pair.cooldown_bars == 0:
+            elif signal is SignalResult.ENTER_SHORT and pair.cooldown_bars == 0 and not blackout:
                 self._enter_short(pair, price_a, price_b)
             elif signal in (
                 SignalResult.EXIT,
@@ -141,6 +159,42 @@ class StatArbStrategy(BaseStrategy):
 
             if pair.position is not PairPosition.NONE:
                 pair.bars_held += 1
+
+    def _crisis_blackout(self, bars) -> bool:
+        """Suppress NEW entries on an extreme market-wide daily move (crisis
+        regime), when mean-reversion pair relationships are most likely to break.
+        Exits/stops are unaffected. Returns False when no proxy or prior close is
+        known. Tracks the proxy close across bars to measure the daily move."""
+        proxy = getattr(self.config, "MARKET_PROXY", None)
+        threshold = getattr(self.config, "VIX_BLACKOUT_DAILY_MOVE", None)
+        if proxy is None or threshold is None:
+            return False
+
+        price = self._latest_close(bars, proxy)
+        if price is None:
+            # The scheduler may not include the proxy in its bar fetch; get it directly.
+            try:
+                proxy_bars = self.client.get_latest_bars([proxy], TimeFrame.Day)
+                price = self._latest_close(proxy_bars, proxy)
+            except Exception as e:
+                self.logger.error(f"Failed to fetch proxy {proxy}: {e}")
+                return False
+        if price is None or price <= 0:
+            return False
+
+        prev = self._prev_proxy_close
+        self._prev_proxy_close = price
+        if prev is None or prev <= 0:
+            return False
+
+        daily_move = abs(price / prev - 1.0)
+        if daily_move >= threshold:
+            self.logger.info(
+                f"Crisis blackout: {proxy} daily move {daily_move:.2%} >= "
+                f"{threshold:.2%}; suppressing new entries"
+            )
+            return True
+        return False
 
     def _enter_long(self, pair: _PairState, price_a: float, price_b: float) -> None:
         qty_a = round(self.config.POSITION_SIZE_USD / price_a, 0)

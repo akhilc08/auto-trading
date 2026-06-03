@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import statsmodels.api as sm
+from alpaca.data.timeframe import TimeFrame
 
 from core.base_strategy import BaseStrategy
 from strategies.market_neutral.signals import Position, Signal, compute_signal
@@ -79,6 +80,11 @@ class MarketNeutralStrategy(BaseStrategy):
     def _update(self, bars) -> None:
         market_price = self._latest_close(bars, self.config.MARKET_PROXY)
         if market_price is None:
+            # The scheduler only fetches config.SYMBOLS, which excludes
+            # MARKET_PROXY, so fetch the proxy's latest close ourselves.
+            market_price = self._fetch_proxy_price()
+        if market_price is None:
+            self.logger.warning(f"No price for {self.config.MARKET_PROXY}, skipping bar")
             return
         log_market_now = math.log(market_price)
 
@@ -164,6 +170,14 @@ class MarketNeutralStrategy(BaseStrategy):
         stock.qty_market = 0.0
         if reason is Signal.STOP:
             stock.cooldown_bars = self.config.REENTRY_COOLDOWN_DAYS
+
+    def _fetch_proxy_price(self) -> float | None:
+        try:
+            proxy_bars = self.client.get_latest_bars([self.config.MARKET_PROXY], TimeFrame.Day)
+            return self._latest_close(proxy_bars, self.config.MARKET_PROXY)
+        except Exception as e:
+            self.logger.error(f"Failed to fetch {self.config.MARKET_PROXY} price: {e}")
+            return None
 
     @staticmethod
     def _latest_close(bars, symbol: str) -> float | None:

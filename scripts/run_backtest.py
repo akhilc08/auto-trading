@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Comprehensive parameter search for the stat arb strategy.
 Goal: beat S&P 500 ~8% annual return with Sharpe > 1.5 and max DD < 25%.

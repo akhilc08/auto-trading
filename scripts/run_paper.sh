@@ -14,7 +14,7 @@ run_strategy() {
     local name="$1"
     local log="logs/${name}.log"
     echo "Starting ${name} → ${log}"
-    python runner.py --strategy "$name" --mode paper --trigger cron \
+    python3 runner.py --strategy "$name" --mode paper --trigger cron \
         >> "$log" 2>&1 &
     echo $!
 }
