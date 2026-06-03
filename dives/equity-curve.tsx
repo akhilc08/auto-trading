@@ -14,12 +14,31 @@ import {
 // DuckDB returns BIGINT/DECIMAL as BigInt/objects — wrap every numeric value.
 const N = (v: unknown): number => (v != null ? Number(v) : 0);
 
+// MotherDuck design-system tokens.
+const INK = "#231f20";
+const MUTED = "#6a6a6a";
+const BG = "#f8f8f8";
+const GRID = "#e8e8e8";
+const PNL_GREEN = "#2d7a00";
+const PNL_RED = "#bc1200";
+
 // Multi-series line palette (14 entries) — index with i % LINE_COLORS.length.
 const LINE_COLORS = [
-  "#3366cc", "#dc3912", "#ff9900", "#109618", "#990099",
-  "#0099c6", "#dd4477", "#66aa00", "#b82e2e", "#316395",
-  "#994499", "#22aa99", "#aaaa11", "#6633cc",
+  "#0777b3", "#bd4e35", "#2d7a00", "#e18727", "#638cad",
+  "#990099", "#0099c6", "#dd4477", "#66aa00", "#b82e2e",
+  "#316395", "#994499", "#22aa99", "#6633cc",
 ];
+
+const usd = (v: unknown) =>
+  N(v).toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+// Compact axis ticks: $1.2k / $3.4M.
+const compactUsd = (v: number) => {
+  const a = Math.abs(v);
+  if (a >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
+  if (a >= 1e3) return `$${(v / 1e3).toFixed(1)}k`;
+  return `$${v.toFixed(0)}`;
+};
 
 export default function EquityCurve() {
   // 90-day per-strategy cumulative P&L on a complete date spine.
@@ -91,45 +110,107 @@ export default function EquityCurve() {
     };
   }, [rows]);
 
-  return (
-    <div className="p-6" style={{ background: "#f8f8f8" }}>
-      <h1 className="text-2xl font-semibold" style={{ color: "#231f20" }}>
-        Equity Curve
-      </h1>
-      <p className="text-sm mb-4" style={{ color: "#6a6a6a" }}>
-        Cumulative P&amp;L per strategy over the last 90 days
-      </p>
+  // KPIs: combined latest cumulative P&L across strategies, and strategy count.
+  const last = chartData.data[chartData.data.length - 1] as
+    | Record<string, number | string>
+    | undefined;
+  const combinedLatest = last
+    ? chartData.strategies.reduce((acc, s) => acc + N(last[s]), 0)
+    : 0;
 
-      {isLoading ? (
-        <div
-          className="bg-gray-100 animate-pulse rounded"
-          style={{ height: 300 }}
-        />
-      ) : isError ? (
-        <p style={{ color: "#bc1200" }}>Error loading equity curve.</p>
-      ) : rows.length === 0 ? (
-        <p style={{ color: "#6a6a6a" }}>No data yet — run a strategy to populate.</p>
-      ) : (
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={chartData.data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-            <XAxis dataKey="trade_date" tick={{ fontSize: 11 }} />
-            <YAxis tickFormatter={(v) => `$${v}`} tick={{ fontSize: 11 }} />
-            <Tooltip formatter={(v: number) => [`$${N(v).toFixed(2)}`, ""]} />
-            <Legend />
-            {chartData.strategies.map((s, i) => (
-              <Line
-                key={s}
-                type="linear"
-                dataKey={s}
-                stroke={LINE_COLORS[i % LINE_COLORS.length]}
-                strokeWidth={2}
-                dot={false}
+  const numCell = { fontVariantNumeric: "tabular-nums" } as const;
+
+  return (
+    <div className="p-6" style={{ background: BG, color: INK }}>
+      <div style={{ maxWidth: 880, margin: "0 auto" }}>
+        <header className="mb-6">
+          <h1 className="text-xl font-semibold" style={{ color: INK }}>
+            Equity Curve
+          </h1>
+          <p className="text-sm" style={{ color: MUTED }}>
+            Cumulative P&amp;L per strategy · last 90 days
+          </p>
+        </header>
+
+        {/* KPI strip */}
+        <div className="grid grid-cols-2 gap-8 mb-6" style={{ maxWidth: 440 }}>
+          <div>
+            {isLoading ? (
+              <div className="h-8 w-28 bg-gray-200 animate-pulse rounded" />
+            ) : (
+              <p
+                className="text-3xl font-bold"
+                style={{ ...numCell, color: combinedLatest >= 0 ? PNL_GREEN : PNL_RED }}
+              >
+                {usd(combinedLatest)}
+              </p>
+            )}
+            <p className="text-xs mt-1" style={{ color: MUTED }}>Combined cumulative P&amp;L</p>
+          </div>
+          <div>
+            {isLoading ? (
+              <div className="h-8 w-12 bg-gray-200 animate-pulse rounded" />
+            ) : (
+              <p className="text-3xl font-bold" style={{ ...numCell, color: INK }}>
+                {chartData.strategies.length}
+              </p>
+            )}
+            <p className="text-xs mt-1" style={{ color: MUTED }}>Strategies</p>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="bg-gray-100 animate-pulse rounded" style={{ height: 300 }} />
+        ) : isError ? (
+          <p style={{ color: PNL_RED }}>Error loading equity curve.</p>
+        ) : rows.length === 0 ? (
+          <p className="py-8 text-center" style={{ color: MUTED }}>
+            No data yet — run a strategy to populate.
+          </p>
+        ) : (
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={chartData.data} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+              <XAxis
+                dataKey="trade_date"
+                tick={{ fontSize: 11, fill: MUTED }}
+                tickLine={false}
+                axisLine={{ stroke: GRID }}
+                minTickGap={48}
               />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
-      )}
+              <YAxis
+                tickFormatter={compactUsd}
+                tick={{ fontSize: 11, fill: MUTED }}
+                tickLine={false}
+                axisLine={false}
+                width={56}
+              />
+              <Tooltip
+                formatter={(v: number) => usd(v)}
+                contentStyle={{
+                  fontSize: 12,
+                  borderRadius: 8,
+                  border: `1px solid ${GRID}`,
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                }}
+                labelStyle={{ color: MUTED }}
+              />
+              <Legend wrapperStyle={{ fontSize: 11 }} iconType="plainline" />
+              {chartData.strategies.map((s, i) => (
+                <Line
+                  key={s}
+                  type="linear"
+                  dataKey={s}
+                  stroke={LINE_COLORS[i % LINE_COLORS.length]}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 3 }}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
     </div>
   );
 }
