@@ -559,7 +559,7 @@ Since Phases 1 and 2 may not be complete when Dives are authored, each Dive must
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **REQUIRED_DATABASES for user-owned database**
    - What we know: `REQUIRED_DATABASES` with `type: "share"` is for shared databases. The `eastlake-sales.tsx` example uses `type: "share"` with a share UUID.
