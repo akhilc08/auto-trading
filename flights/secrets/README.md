@@ -59,8 +59,11 @@ secret for that account).
 
 ## Notes
 
-- Secrets created with `CREATE OR REPLACE SECRET` against `md:` persist in the MotherDuck
-  account catalog and are visible to any Flight authenticating to the same account.
+- **Use `CREATE OR REPLACE PERSISTENT SECRET`.** A plain `CREATE SECRET` makes a session-memory
+  secret (`persistent=false, storage=memory`) that a Flight's separate `duckdb.connect("md:")`
+  cannot see — the Flight fails with "secret not found". `CREATE PERSISTENT SECRET` while
+  connected to `md:` stores it in MotherDuck cloud (`storage=motherduck`), visible to every
+  Flight authenticating to the account.
 - `verify_secrets.py` prints only secret names and field **lengths**, never the raw key/secret.
 - `create_secrets.sql` contains only `<<...>>` placeholders; a CI grep guard fails the build if
   any Alpaca-shaped key pattern appears in it.

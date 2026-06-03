@@ -11,6 +11,11 @@
 --   `SELECT secret_string FROM duckdb_secrets()` even with redaction enabled. We therefore store
 --   each account's Alpaca api_key and secret_key as EXTRA_HTTP_HEADERS entries.
 --
+-- PERSISTENT is REQUIRED. A plain `CREATE SECRET` makes a session-memory secret
+-- (persistent=false, storage=memory) that a Flight's separate `duckdb.connect("md:")` cannot
+-- see. `CREATE PERSISTENT SECRET` while connected to md: stores it in MotherDuck cloud
+-- (storage=motherduck), visible to every Flight authenticating to the account.
+--
 -- READ-BACK CALL (used by verify_secrets.py and every execution Flight):
 --   SELECT secret_string FROM duckdb_secrets() WHERE name = 'alpaca_<account>';
 --   then parse the `extra_http_headers={api_key=..., secret_key=...}` portion.
@@ -22,7 +27,7 @@
 -- Requirements: SECRETS-01 (one secret per account, created/replaced below), SECRETS-02
 -- (runtime read-back, no plaintext in source/config), SECRETS-03 (one secret per account).
 
-CREATE OR REPLACE SECRET alpaca_stat_arb (
+CREATE OR REPLACE PERSISTENT SECRET alpaca_stat_arb (
     TYPE http,
     EXTRA_HTTP_HEADERS MAP {
         'api_key':    '<<ALPACA_API_KEY_STAT_ARB>>',
@@ -30,7 +35,7 @@ CREATE OR REPLACE SECRET alpaca_stat_arb (
     }
 );
 
-CREATE OR REPLACE SECRET alpaca_macro_vol (
+CREATE OR REPLACE PERSISTENT SECRET alpaca_macro_vol (
     TYPE http,
     EXTRA_HTTP_HEADERS MAP {
         'api_key':    '<<ALPACA_API_KEY_MACRO_VOL>>',
@@ -38,7 +43,7 @@ CREATE OR REPLACE SECRET alpaca_macro_vol (
     }
 );
 
-CREATE OR REPLACE SECRET alpaca_trend_following (
+CREATE OR REPLACE PERSISTENT SECRET alpaca_trend_following (
     TYPE http,
     EXTRA_HTTP_HEADERS MAP {
         'api_key':    '<<ALPACA_API_KEY_TREND_FOLLOWING>>',

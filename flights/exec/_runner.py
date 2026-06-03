@@ -21,6 +21,8 @@ import re
 import traceback
 
 import duckdb
+from alpaca.data.enums import DataFeed
+from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.enums import QueryOrderStatus
 from alpaca.trading.requests import GetOrdersRequest
@@ -33,6 +35,42 @@ from flights.exec._logger import FlightLogger
 
 logger = logging.getLogger("exec_flight")
 logging.basicConfig(level=logging.INFO)
+
+
+class _IEXAlpacaClient(AlpacaClient):
+    """AlpacaClient that fetches bars from the free IEX feed instead of the default SIP feed.
+
+    Alpaca paper accounts without a SIP data subscription get
+    "403 — subscription does not permit querying recent SIP data" on bar requests. The IEX feed
+    is available on the free tier. Overrides both bar methods so every data call a strategy makes
+    through `client` uses IEX. core/ is intentionally left unchanged (plan 02-02 constraint).
+    """
+
+    def get_latest_bars(self, symbols, timeframe=TimeFrame.Minute):
+        if timeframe == TimeFrame.Day:
+            lookback = dt.timedelta(days=5)
+        elif timeframe == TimeFrame.Hour:
+            lookback = dt.timedelta(hours=2)
+        else:
+            lookback = dt.timedelta(minutes=10)
+        request = StockBarsRequest(
+            symbol_or_symbols=symbols,
+            timeframe=timeframe,
+            start=dt.datetime.now(dt.timezone.utc) - lookback,
+            feed=DataFeed.IEX,
+        )
+        return self.data.get_stock_bars(request).data
+
+    def get_historical_bars(self, symbols, n_days, timeframe=TimeFrame.Day):
+        calendar_days = int(n_days * 1.5) + 14
+        start = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=calendar_days)
+        request = StockBarsRequest(
+            symbol_or_symbols=symbols,
+            timeframe=timeframe,
+            start=start,
+            feed=DataFeed.IEX,
+        )
+        return self.data.get_stock_bars(request).data
 
 
 def _read_alpaca_secret(con, secret_name: str):
@@ -71,7 +109,7 @@ def _build_client(api_key: str, secret_key: str) -> AlpacaClient:
     os.environ["ALPACA_API_KEY"] = api_key
     os.environ["ALPACA_SECRET_KEY"] = secret_key
     try:
-        client = AlpacaClient(mode="paper")
+        client = _IEXAlpacaClient(mode="paper")
     finally:
         os.environ.pop("ALPACA_API_KEY", None)
         os.environ.pop("ALPACA_SECRET_KEY", None)
