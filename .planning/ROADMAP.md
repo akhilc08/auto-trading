@@ -74,5 +74,5 @@ Three phases: get data flowing into MotherDuck, move execution to Flights, then 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Schema, Logger & Integration | 2/2 | Complete    | 2026-06-03 |
-| 2. Flights | 0/? | Not started | - |
+| 2. Flights | 1/4 | In Progress|  |
 | 3. Dives | 0/5 | Not started | - |
