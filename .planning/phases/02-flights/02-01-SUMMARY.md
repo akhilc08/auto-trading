@@ -61,12 +61,16 @@ The plan's design notes assumed a "generic key-value secret type" might exist; e
 - Task 2 (auto): create_secrets.sql + README.md. ✓ (automated verify PASS)
 - Task 3 (auto): verify_secrets.py. ✓ (ast verify PASS; parse_credentials unit-tested in .venv)
 
-## Outstanding Operator Action (human-check)
-The three **real** secrets are not yet created — that needs your real Alpaca paper keys. After you add them, run:
-```bash
-MOTHERDUCK_TOKEN=<service-account-token> python flights/secrets/verify_secrets.py
-```
-Expect `OK` for all three and exit 0.
+## Operator Action — DONE
+All three real secrets were created on the live MotherDuck instance and read-back was verified
+via `duckdb_secrets()` (plaintext, redaction on): `alpaca_stat_arb` (api_key 26 / secret_key 44),
+`alpaca_macro_vol` (26/43), `alpaca_trend_following` (26/42). The third account is labeled
+`stock_alpha` in Alpaca / `core/accounts.py` but maps to the `alpaca_trend_following` secret used
+by the `exec-trend-following` Flight (EXEC-03) — same physical account.
+
+Remaining (operator, when convenient): run `MOTHERDUCK_TOKEN=<service-account-token> python
+flights/secrets/verify_secrets.py` from a shell to confirm read-back through the exact Flight code
+path (MCP read-back already proved the mechanism).
 
 ## Self-Check: PASSED
 - key-files.created exist on disk: ✓ (create_secrets.sql, verify_secrets.py, README.md)
