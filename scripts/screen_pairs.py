@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 ETF pair screener: downloads 3 years of daily prices and tests every pair for
 cointegration using Engle-Granger. Results saved to data/screened_pairs.csv.

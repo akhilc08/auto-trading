@@ -10,13 +10,26 @@ class Signal(Enum):
     NONE = "none"
 
 
-def fetch_vix() -> tuple[float, float]:
+def _last_close(symbol: str) -> float:
+    df = yf.download(symbol, period="5d", interval="1d", progress=False, auto_adjust=False)
+    close = df["Close"]
+    # Modern yfinance returns MultiIndex columns even for a single ticker, which
+    # makes df["Close"] a DataFrame; take its first (only) column.
+    if hasattr(close, "columns"):
+        close = close.iloc[:, 0]
+    return float(close.dropna().iloc[-1])
+
+
+def fetch_vix() -> tuple[float | None, float | None]:
+    """(VIX, VIX3M), or (None, None) when the data is unavailable.
+
+    Returns None on failure rather than fabricating 'calm market' values — the
+    caller must skip the bar, not trade short-vol on hardcoded inputs.
+    """
     try:
-        vix = float(yf.download("^VIX", period="5d", interval="1d", progress=False, auto_adjust=False)["Close"].dropna().iloc[-1])
-        vix3m = float(yf.download("^VIX3M", period="5d", interval="1d", progress=False, auto_adjust=False)["Close"].dropna().iloc[-1])
-        return vix, vix3m
+        return _last_close("^VIX"), _last_close("^VIX3M")
     except Exception:
-        return 18.0, 20.0
+        return None, None
 
 
 def realized_vol(log_returns: list[float]) -> float:

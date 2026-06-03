@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Backtest stat arb on real ETF prices using screener-discovered pairs.
 Downloads 3 years of data, uses year 1 as formation, years 2-3 as trading.

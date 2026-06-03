@@ -1,8 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Validates all strategy variants against the >10% ROI threshold using the existing
 backtest infrastructure. Prints a pass/fail table. Strategies that fail are flagged.
-Usage: python scripts/validate_strategies.py
+Usage: python3 scripts/validate_strategies.py
 """
 import sys
 import os

@@ -14,9 +14,13 @@ Correct UTC cron: "0 22 * * 1-5" in summer (EDT = UTC-4) / "0 23 * * 1-5" in win
 simplification, a Monday run aggregates Sunday (zero rows, no trades) rather than the preceding
 Friday — weekend dates simply produce no filled trades, so this is harmless.
 """
+from collections import defaultdict
+
 import duckdb
 
-PRIOR_DAY = "(CURRENT_DATE - INTERVAL 1 DAY)::DATE"
+# Prior trading day in US Eastern (the market's calendar), not UTC — so a fill near the US close
+# (e.g. 15:45 ET) lands on the correct trading day instead of being pushed to the next UTC date.
+PRIOR_DAY = "((now() AT TIME ZONE 'America/New_York')::DATE - INTERVAL 1 DAY)::DATE"
 
 DDL = """
 CREATE TABLE IF NOT EXISTS trading.main.daily_pnl (
@@ -32,32 +36,74 @@ CREATE TABLE IF NOT EXISTS trading.main.daily_pnl (
 )
 """
 
-# Step 1 — upsert the prior day's base metrics. ON CONFLICT DO UPDATE on the non-key metric
-# columns only (AGG-05); never the PK columns (DuckDB bug #16698 / PITFALLS #4). sharpe_7d and
-# max_drawdown are filled by step 2 (they depend on history including this row).
-UPSERT = f"""
+# Step 1 — realized P&L. trades.pnl is never populated by the live fill path (update_fill always
+# writes pnl=NULL), so SUM(pnl) would be NULL forever. Instead we recompute realized P&L from the
+# fills themselves with average-cost accounting (signed position handles both long sells and short
+# covers), attributing each closing trade's P&L to the Eastern trading day it filled. We read the
+# full fill history (cost basis spans days) and write only the prior day's rows.
+FILLS_SQL = """
+SELECT strategy_name, account_name, symbol, side, qty, filled_avg_price,
+       (filled_at AT TIME ZONE 'America/New_York')::DATE AS d
+FROM trading.main.trades
+WHERE status = 'filled' AND filled_at IS NOT NULL AND filled_avg_price IS NOT NULL
+ORDER BY filled_at
+"""
+
+# ON CONFLICT DO UPDATE on the non-key metric columns only (AGG-05); never the PK columns
+# (DuckDB bug #16698 / PITFALLS #4). sharpe_7d / max_drawdown are filled by step 2.
+UPSERT_ROW = """
 INSERT INTO trading.main.daily_pnl
     (date, strategy_name, account_name, realized_pnl, trade_count, win_count, sharpe_7d, max_drawdown)
-SELECT
-    {PRIOR_DAY} AS date,
-    strategy_name,
-    account_name,
-    SUM(pnl)                                  AS realized_pnl,
-    COUNT(*)                                  AS trade_count,
-    SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END)  AS win_count,
-    NULL                                      AS sharpe_7d,
-    NULL                                      AS max_drawdown
-FROM trading.main.trades
-WHERE status = 'filled'
-  AND filled_at::DATE = {PRIOR_DAY}
-GROUP BY strategy_name, account_name
+VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)
 ON CONFLICT (date, strategy_name, account_name) DO UPDATE SET
     realized_pnl = EXCLUDED.realized_pnl,
     trade_count  = EXCLUDED.trade_count,
-    win_count    = EXCLUDED.win_count,
-    sharpe_7d    = EXCLUDED.sharpe_7d,
-    max_drawdown = EXCLUDED.max_drawdown
+    win_count    = EXCLUDED.win_count
 """
+
+
+def _realized_metrics(fills):
+    """Average-cost realized P&L per (strategy, account, day) from chronologically-ordered fills.
+
+    Each fill is (strategy, account, symbol, side, qty, price, day). A buy is +qty, a sell -qty;
+    a signed running position lets the same logic realize P&L on long sells and short covers, and
+    handle flips. Returns {(strategy, account, day): {realized, trades, wins}}.
+    """
+    book = defaultdict(lambda: [0.0, 0.0])   # (strategy, account, symbol) -> [signed_qty, avg_cost]
+    out = defaultdict(lambda: {"realized": 0.0, "trades": 0, "wins": 0})
+    for strategy, account, symbol, side, qty, price, day in fills:
+        qty = float(qty)
+        price = float(price)
+        delta = qty if str(side).lower() == "buy" else -qty
+        key = (strategy, account, symbol)
+        pos, avg = book[key]
+        agg = out[(strategy, account, day)]
+        agg["trades"] += 1
+
+        realized = 0.0
+        if pos == 0 or (pos > 0) == (delta > 0):
+            # opening or adding in the same direction -> blend the average cost
+            new_pos = pos + delta
+            if new_pos != 0:
+                avg = (avg * abs(pos) + price * abs(delta)) / abs(new_pos)
+            pos = new_pos
+        else:
+            # reducing / closing / flipping the position
+            closing = min(abs(delta), abs(pos))
+            realized = (price - avg) * closing if pos > 0 else (avg - price) * closing
+            pos = pos + delta
+            if abs(delta) > closing:   # flipped past flat -> new leg is priced at this fill
+                avg = price
+            elif pos == 0:
+                avg = 0.0
+            # partial close keeps the existing avg cost for the remaining shares
+
+        book[key] = [pos, avg]
+        if realized:
+            agg["realized"] += realized
+            if realized > 0:
+                agg["wins"] += 1
+    return out
 
 # Step 2 — compute sharpe_7d (mean/stddev of the trailing 7 daily realized_pnl values per
 # strategy/account; NULL when <7 days of history or zero variance) and max_drawdown (max
@@ -119,12 +165,21 @@ def main():
     con = duckdb.connect("md:")
     con.execute("CREATE DATABASE IF NOT EXISTS trading")
     con.execute(DDL)
-    con.execute(UPSERT)
+
+    prior_day = con.execute(f"SELECT {PRIOR_DAY}").fetchone()[0]
+    metrics = _realized_metrics(con.execute(FILLS_SQL).fetchall())
+    written = 0
+    for (strategy, account, day), m in metrics.items():
+        if day != prior_day:
+            continue
+        con.execute(
+            UPSERT_ROW,
+            [prior_day, strategy, account, m["realized"], m["trades"], m["wins"]],
+        )
+        written += 1
+
     con.execute(UPDATE_METRICS)
-    rows = con.execute(
-        f"SELECT COUNT(*) FROM trading.main.daily_pnl WHERE date = {PRIOR_DAY}"
-    ).fetchone()[0]
-    print(f"daily_pnl rows for prior day: {rows}")
+    print(f"daily_pnl rows for prior day: {written}")
 
 
 if __name__ == "__main__":

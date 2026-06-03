@@ -8,6 +8,9 @@ PAIRS = [
 
 SYMBOLS = list({sym for pair in PAIRS for sym in pair})
 
+# Broad-market proxy used only for the crisis-entry blackout (not traded).
+MARKET_PROXY = "SPY"
+
 INTERVAL = "1d"
 TRADE_OUTSIDE_HOURS = False
 

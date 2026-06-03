@@ -1,7 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Performance summary report. Reads logs/performance.csv and prints stats + ASCII equity curve.
-Usage: python scripts/report_30d.py [--days 30]
+Usage: python3 scripts/report_30d.py [--days 30]
 """
 import argparse
 import csv
@@ -30,7 +30,7 @@ def main():
 
     if not PERF_CSV.exists():
         print("No performance data yet. The watchdog logs a snapshot each day at 4:30 PM ET.")
-        print("You can also run:  python scripts/log_performance.py")
+        print("You can also run:  python3 scripts/log_performance.py")
         return
 
     rows = []
@@ -57,11 +57,11 @@ def main():
     start_eq = equities[0]
     end_eq = equities[-1]
     total_pnl = end_eq - start_eq
-    total_ret_pct = total_pnl / start_eq * 100
+    total_ret_pct = (total_pnl / start_eq * 100) if start_eq else 0.0
 
     # annualized return
     n_days = max(len(equities) - 1, 1)
-    ann_ret = ((end_eq / start_eq) ** (252 / n_days) - 1) * 100
+    ann_ret = (((end_eq / start_eq) ** (252 / n_days) - 1) * 100) if start_eq > 0 else 0.0
 
     # max drawdown
     peak = equities[0]
@@ -74,7 +74,11 @@ def main():
             max_dd = dd
 
     # annualized Sharpe
-    daily_rets = [(equities[i] - equities[i - 1]) / equities[i - 1] for i in range(1, len(equities))]
+    daily_rets = [
+        (equities[i] - equities[i - 1]) / equities[i - 1]
+        for i in range(1, len(equities))
+        if equities[i - 1] > 0
+    ]
     sharpe = 0.0
     if len(daily_rets) > 1:
         mu = sum(daily_rets) / len(daily_rets)

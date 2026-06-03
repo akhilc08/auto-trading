@@ -13,3 +13,8 @@ _STRATEGY_ACCOUNT: dict[str, str] = {
 
 def account_for(strategy: str) -> str:
     return _STRATEGY_ACCOUNT.get(strategy, "default")
+
+
+def all_accounts() -> list[str]:
+    """Account names that own at least one strategy (for dashboards / snapshots)."""
+    return list(_ACCOUNT_STRATEGIES)

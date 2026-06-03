@@ -60,6 +60,9 @@ class VRPStrategy(BaseStrategy):
             return
 
         vix, vix3m = fetch_vix()
+        if vix is None or vix3m is None:
+            self.logger.warning("VIX data unavailable, skipping bar")
+            return
         rv = realized_vol(self._spy_returns[-22:])
         signal, composite = compute_signal(
             vix=vix,

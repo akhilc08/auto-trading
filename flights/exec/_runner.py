@@ -130,12 +130,20 @@ def run_account_flight(account_name: str, strategy_names: list[str], secret_name
     client = _build_client(api_key, secret_key)
 
     # Market-hours guard (EXEC-07): exit before instantiating strategies when the market is closed.
-    if not client.trading.get_clock().is_open:
+    # Fail closed if the clock check itself errors (transient Alpaca/network blip) so a guard
+    # failure skips the run rather than crashing the whole account's Flight before any snapshot.
+    try:
+        market_open = client.trading.get_clock().is_open
+    except Exception as e:
+        logger.error(f"get_clock failed, skipping run: {e}")
+        return
+    if not market_open:
         logger.info("market closed — exiting, no orders")
         return
 
     md = FlightLogger(con)
 
+    ran_strategies: list[str] = []
     for name in strategy_names:
         try:
             strategy_module = importlib.import_module(f"strategies.{name}.strategy")
@@ -154,6 +162,7 @@ def run_account_flight(account_name: str, strategy_names: list[str], secret_name
         strategy = strategy_class(
             client=client, order_manager=order_manager, logger=logger, config=config_module,
         )
+        ran_strategies.append(name)
         interval = getattr(config_module, "INTERVAL", "1m")
         timeframe = TimeFrame.Day if interval == "1d" else (
             TimeFrame.Hour if interval.endswith("h") else TimeFrame.Minute
@@ -179,17 +188,18 @@ def run_account_flight(account_name: str, strategy_names: list[str], secret_name
         logger.error(f"fill polling failed: {e}")
 
     # Positions/portfolio are account-level at Alpaca but the schema attributes them per strategy.
-    # Snapshot once per strategy in this account so each strategy_name carries its account state
-    # (mirrors what N separate per-strategy runs would each record).
+    # Snapshot once per strategy that actually ran (ran_strategies), so strategies that were
+    # skipped — e.g. a missing module or import error — do not get fabricated snapshot rows that
+    # inflate per-strategy reporting.
     try:
         positions = client.trading.get_all_positions()
-        for name in strategy_names:
+        for name in ran_strategies:
             md.snapshot_positions(positions, name, account_name)
     except Exception as e:
         logger.error(f"snapshot_positions failed: {e}")
     try:
         account = client.trading.get_account()
-        for name in strategy_names:
+        for name in ran_strategies:
             md.snapshot_portfolio(account, name, account_name)
     except Exception as e:
         logger.error(f"snapshot_portfolio failed: {e}")

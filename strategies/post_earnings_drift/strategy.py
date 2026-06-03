@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass, field
 
 from core.base_strategy import BaseStrategy
@@ -112,26 +113,31 @@ class PEADStrategy(BaseStrategy):
 
             # Scale position size by surprise strength
             size_usd = self.config.POSITION_SIZE_USD * min(1.0, abs(surprise) / 20.0 + 0.5)
-            qty = size_usd / current_price
-            qty = round(qty, 2)
-            if qty <= 0:
-                continue
 
             if surprise > 0:
-                self.order_manager.buy(sym, qty)
+                qty = round(size_usd / current_price, 2)  # fractional long shares OK on Alpaca
+                if qty <= 0:
+                    continue
+                order = self.order_manager.buy(sym, qty)
                 direction = "long"
-                self.logger.info(
-                    f"PEAD enter long: {sym} surprise={surprise:.1f}% "
-                    f"qty={qty:.2f} price={current_price:.2f}"
-                )
             else:
-                self.order_manager.short_sell(sym, qty)
+                qty = float(math.floor(size_usd / current_price))  # Alpaca rejects fractional shorts
+                if qty < 1:
+                    continue
+                order = self.order_manager.short_sell(sym, qty)
                 direction = "short"
-                self.logger.info(
-                    f"PEAD enter short: {sym} surprise={surprise:.1f}% "
-                    f"qty={qty:.2f} price={current_price:.2f}"
-                )
 
+            # Only record the position if the broker accepted the order.
+            # order_manager returns None on rejection/error; recording regardless
+            # would create phantom positions that desync state from the broker.
+            if order is None:
+                self.logger.warning(f"PEAD entry rejected for {sym}; not recording position")
+                continue
+
+            self.logger.info(
+                f"PEAD enter {direction}: {sym} surprise={surprise:.1f}% "
+                f"qty={qty} price={current_price:.2f}"
+            )
             self._positions[sym] = PEADPosition(
                 symbol=sym,
                 direction=direction,

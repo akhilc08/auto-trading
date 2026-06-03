@@ -64,8 +64,20 @@ def test_mean_reverting_regime_flat_prices():
     assert state.regime == Regime.MEAN_REVERTING
 
 
-def test_fetch_vix_fallback():
+def test_fetch_vix_returns_none_on_failure():
+    # Must NOT fabricate calm (18, 20) values — that silently disables VIX-driven
+    # RISK_OFF/CRISIS detection. Return None so the caller skips the bar.
     with patch("strategies.regime_switching.signals.yf.download", side_effect=Exception("network")):
         vix, vix3m = fetch_vix()
-    assert vix == 18.0
-    assert vix3m == 20.0
+    assert vix is None and vix3m is None
+
+
+def test_fetch_vix_handles_multiindex_columns():
+    import pandas as pd
+
+    idx = pd.date_range("2024-01-01", periods=3, freq="D")
+    df = pd.DataFrame({("Close", "^VIX"): [10.0, 11.0, 12.5]}, index=idx)
+    df.columns = pd.MultiIndex.from_tuples(df.columns)
+    with patch("strategies.regime_switching.signals.yf.download", return_value=df):
+        vix, vix3m = fetch_vix()
+    assert vix == 12.5 and vix3m == 12.5

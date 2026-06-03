@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Starts all 9 strategies in background without a watchdog.
-# For the auto-restart supervised mode, use: python scripts/watchdog.py [paper|live]
+# Starts all 12 strategies in background without a watchdog.
+# For the auto-restart supervised mode, use: python3 scripts/watchdog.py [paper|live]
 # Usage: ./scripts/run_all.sh [paper|live]
 set -euo pipefail
 
@@ -14,11 +14,12 @@ STRATEGIES=(
     trend_following trend_following_v2
     multi_factor_equity multi_factor_equity_v2
     market_neutral market_neutral_v2
+    vol_risk_premium post_earnings_drift regime_switching
 )
 
 PIDS=()
 for name in "${STRATEGIES[@]}"; do
-    python runner.py --strategy "$name" --mode "$MODE" --trigger cron \
+    python3 runner.py --strategy "$name" --mode "$MODE" --trigger cron \
         >> "logs/${name}.log" 2>&1 &
     PIDS+=($!)
     echo "Started $name (pid=$!)"

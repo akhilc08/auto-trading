@@ -1,17 +1,29 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Portfolio status dashboard — shows account summary, open positions, and recent orders.
-Usage: python scripts/status.py [--mode paper|live]
+Usage: python3 scripts/status.py [--mode paper|live]
 """
 import sys
 import os
 import argparse
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from dotenv import load_dotenv
+from core.accounts import all_accounts
 from core.alpaca_client import AlpacaClient
+
+
+def _client_for_account(account: str, mode: str):
+    """Load the per-account env file and build a client, or None if the env file is absent."""
+    env_path = PROJECT_ROOT / f".env.{account}"
+    if not env_path.exists():
+        return None
+    load_dotenv(env_path, override=True)
+    return AlpacaClient(mode=mode)
 
 STRATEGIES = [
     "stat_arb", "stat_arb_v2", "stat_arb_v3",
@@ -125,17 +137,36 @@ def show_strategy_logs(tail: int = 5) -> None:
 
 
 def main():
-    load_dotenv()
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["paper", "live"], default="paper")
     parser.add_argument("--hours", type=int, default=24, help="Order history window in hours")
+    parser.add_argument(
+        "--account", choices=all_accounts(),
+        help="Show one account; default shows every account in turn.",
+    )
     args = parser.parse_args()
 
-    client = AlpacaClient(mode=args.mode)
+    accounts = [args.account] if args.account else all_accounts()
 
-    show_account(client)
-    show_positions(client)
-    show_recent_orders(client, hours=args.hours)
+    shown = 0
+    for account in accounts:
+        client = _client_for_account(account, args.mode)
+        if client is None:
+            print(f"\n  [skip {account}: .env.{account} not found]")
+            continue
+        print("\n" + "#" * 60)
+        print(f"  ACCOUNT: {account}")
+        print("#" * 60)
+        show_account(client)
+        show_positions(client)
+        show_recent_orders(client, hours=args.hours)
+        shown += 1
+
+    if shown == 0:
+        print("\nERROR: no account env files found (.env.<account>).")
+        sys.exit(1)
+
+    # Strategy logs are account-agnostic (one log file per strategy) — show once.
     show_strategy_logs()
 
 

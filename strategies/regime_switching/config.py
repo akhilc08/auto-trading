@@ -10,7 +10,9 @@ TRADE_OUTSIDE_HOURS = False
 VIX_CRISIS = 30.0       # VIX above this → CRISIS (all cash)
 VIX_RISK_OFF = 20.0     # VIX above this → RISK_OFF (bonds + gold)
 
-REGIME_CONFIRM_DAYS = 3  # consecutive days before committing to a new regime
+REGIME_CONFIRM_DAYS = 3  # consecutive days the regime must hold before committing (reconstructed
+                         # from recent VIX history each run, not from in-process call counts)
 
-MIN_BARS = 5             # on_bar calls before first regime check (history loaded externally)
+MIN_BARS = 1             # one-shot Flight calls on_bar once per fire; history is loaded inside
+                         # the strategy, so no live warm-up bars need to accumulate first
 POSITION_SIZE_USD = 10_000
