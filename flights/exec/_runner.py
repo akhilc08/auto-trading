@@ -22,7 +22,6 @@ import traceback
 
 import duckdb
 from alpaca.data.enums import DataFeed
-from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.enums import QueryOrderStatus
 from alpaca.trading.requests import GetOrdersRequest
@@ -38,39 +37,19 @@ logging.basicConfig(level=logging.INFO)
 
 
 class _IEXAlpacaClient(AlpacaClient):
-    """AlpacaClient that fetches bars from the free IEX feed instead of the default SIP feed.
+    """AlpacaClient pinned to the free IEX data feed instead of the default SIP feed.
 
     Alpaca paper accounts without a SIP data subscription get
-    "403 — subscription does not permit querying recent SIP data" on bar requests. The IEX feed
-    is available on the free tier. Overrides both bar methods so every data call a strategy makes
-    through `client` uses IEX. core/ is intentionally left unchanged (plan 02-02 constraint).
+    "403 — subscription does not permit querying recent SIP data" on bar requests; IEX is on the
+    free tier. Only the feed differs — the base methods supply the wide lookback and the
+    latest-bar fallback, so an empty window still returns the freshest available bar.
     """
 
     def get_latest_bars(self, symbols, timeframe=TimeFrame.Minute):
-        if timeframe == TimeFrame.Day:
-            lookback = dt.timedelta(days=5)
-        elif timeframe == TimeFrame.Hour:
-            lookback = dt.timedelta(hours=2)
-        else:
-            lookback = dt.timedelta(minutes=10)
-        request = StockBarsRequest(
-            symbol_or_symbols=symbols,
-            timeframe=timeframe,
-            start=dt.datetime.now(dt.timezone.utc) - lookback,
-            feed=DataFeed.IEX,
-        )
-        return self.data.get_stock_bars(request).data
+        return super().get_latest_bars(symbols, timeframe, feed=DataFeed.IEX)
 
     def get_historical_bars(self, symbols, n_days, timeframe=TimeFrame.Day):
-        calendar_days = int(n_days * 1.5) + 14
-        start = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=calendar_days)
-        request = StockBarsRequest(
-            symbol_or_symbols=symbols,
-            timeframe=timeframe,
-            start=start,
-            feed=DataFeed.IEX,
-        )
-        return self.data.get_stock_bars(request).data
+        return super().get_historical_bars(symbols, n_days, timeframe, feed=DataFeed.IEX)
 
 
 def _read_alpaca_secret(con, secret_name: str):

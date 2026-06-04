@@ -360,6 +360,50 @@ def test_regime_switching_holds_when_unconfirmed(monkeypatch):
     assert len(client.orders) == 0, "unconfirmed regime must not trade"
 
 
+def _alpaca_with_fake_data(monkeypatch, fake_data):
+    monkeypatch.setenv("ALPACA_API_KEY", "k")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "s")
+    from core.alpaca_client import AlpacaClient
+    client = AlpacaClient(mode="paper")
+    client.data = fake_data
+    return client
+
+
+def test_alpaca_latest_bars_uses_window_when_available(monkeypatch):
+    from alpaca.data.timeframe import TimeFrame
+    b1, b2 = _Bar(10.0, None), _Bar(11.0, None)
+    calls = {"latest": 0}
+
+    class FakeData:
+        def get_stock_bars(self, req):
+            return type("R", (), {"data": {"SPY": [b1, b2]}})()
+
+        def get_stock_latest_bar(self, req):
+            calls["latest"] += 1
+            return {}
+
+    client = _alpaca_with_fake_data(monkeypatch, FakeData())
+    out = client.get_latest_bars(["SPY"], TimeFrame.Day)
+    assert out["SPY"][-1] is b2
+    assert calls["latest"] == 0, "latest-bar fallback must not run when the window has data"
+
+
+def test_alpaca_latest_bars_falls_back_when_window_empty(monkeypatch):
+    from alpaca.data.timeframe import TimeFrame
+    latest = _Bar(99.0, None)
+
+    class FakeData:
+        def get_stock_bars(self, req):
+            return type("R", (), {"data": {}})()  # empty window (holiday / clock skew / stale feed)
+
+        def get_stock_latest_bar(self, req):
+            return {"SPY": latest}
+
+    client = _alpaca_with_fake_data(monkeypatch, FakeData())
+    out = client.get_latest_bars(["SPY"], TimeFrame.Day)
+    assert out["SPY"][-1].close == 99.0, "must fall back to the latest-available bar on empty window"
+
+
 def test_order_manager_rejects_invalid_qty():
     client = MockClient()
     om = OrderManager(client=client, logger=_NullLogger())
