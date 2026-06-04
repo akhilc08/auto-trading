@@ -13,7 +13,7 @@ import datetime
 import re
 
 import duckdb
-from alpaca.data.enums import DataFeed
+from alpaca.data.enums import Adjustment, DataFeed
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
@@ -75,8 +75,11 @@ class _BenchmarkDataClient:
         # 1.5x converts trading days to calendar days (weekends/holidays); +14 day cushion.
         calendar_days = int(n_days * 1.5) + 14
         start = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=calendar_days)
+        # Adjustment.ALL = split + dividend adjusted (total-return) closes, so SPY ex-dividend /
+        # split dates don't inject spurious one-day returns into the alpha/beta return regression.
         req = StockBarsRequest(
-            symbol_or_symbols=symbols, timeframe=timeframe, start=start, feed=DataFeed.IEX
+            symbol_or_symbols=symbols, timeframe=timeframe, start=start,
+            feed=DataFeed.IEX, adjustment=Adjustment.ALL,
         )
         return self.data.get_stock_bars(req).data
 

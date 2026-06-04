@@ -100,3 +100,15 @@ def test_read_alpaca_secret_parses_headers_with_equals():
 def test_read_alpaca_secret_missing_raises():
     with pytest.raises(RuntimeError):
         load_benchmark._read_alpaca_secret(_FakeSecretCon(None), "nope")
+
+
+def test_read_alpaca_secret_no_headers_raises():
+    s = "name=alpaca_stat_arb;type=http;provider=config"  # secret exists but no headers block
+    with pytest.raises(RuntimeError, match="no extra_http_headers"):
+        load_benchmark._read_alpaca_secret(_FakeSecretCon(s), "alpaca_stat_arb")
+
+
+def test_read_alpaca_secret_partial_credentials_raises():
+    s = "name=alpaca_stat_arb;type=http;extra_http_headers={api_key=AK}"  # secret_key absent
+    with pytest.raises(RuntimeError, match="missing api_key/secret_key"):
+        load_benchmark._read_alpaca_secret(_FakeSecretCon(s), "alpaca_stat_arb")
