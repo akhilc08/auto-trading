@@ -12,3 +12,6 @@ dist/
 # Per-account env files (copy from config/.env.*.example and fill in keys)
 .env.*
 !.env.*.example
+
+# MotherDuck CLI dive identity sidecars (local; not source of truth)
+dives/*.dive-meta.json
