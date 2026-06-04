@@ -8,6 +8,7 @@ update_fill, snapshot_positions, snapshot_portfolio). Targets the SAME tables Ph
 
 Takes a live `duckdb.connect("md:")` connection (the Flight owns the connection / token).
 """
+import json
 import warnings
 from datetime import datetime, timezone
 
@@ -54,6 +55,18 @@ class FlightLogger:
                 equity        DECIMAL(18,4),
                 cash          DECIMAL(18,4),
                 buying_power  DECIMAL(18,4)
+            )
+        """)
+        # Per-strategy position state carried between one-shot Flight fires (JSON blob). Lets
+        # stateful strategies (stat_arb, market_neutral) remember open positions / bars-held /
+        # cooldown so they can manage exits and avoid re-stacking entries across runs.
+        self.con.execute("""
+            CREATE TABLE IF NOT EXISTS trading.main.strategy_state (
+                strategy_name VARCHAR NOT NULL,
+                account_name  VARCHAR NOT NULL,
+                state_json    VARCHAR NOT NULL,
+                updated_at    TIMESTAMPTZ NOT NULL,
+                PRIMARY KEY (strategy_name, account_name)
             )
         """)
 
@@ -118,6 +131,33 @@ class FlightLogger:
                     float(position.unrealized_pl) if position.unrealized_pl is not None else None,
                 ],
             )
+
+    def load_strategy_state(self, strategy_name: str, account_name: str) -> dict:
+        rows = self.con.execute(
+            "SELECT state_json FROM trading.main.strategy_state "
+            "WHERE strategy_name = ? AND account_name = ?",
+            [strategy_name, account_name],
+        ).fetchall()
+        if not rows or not rows[0][0]:
+            return {}
+        try:
+            data = json.loads(rows[0][0])
+            return data if isinstance(data, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def save_strategy_state(self, strategy_name: str, account_name: str, state: dict):
+        # ON CONFLICT updates the non-key columns only (never the PK) — DuckDB bug #16698.
+        self.con.execute(
+            """
+            INSERT INTO trading.main.strategy_state (strategy_name, account_name, state_json, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (strategy_name, account_name) DO UPDATE SET
+                state_json = EXCLUDED.state_json,
+                updated_at = EXCLUDED.updated_at
+            """,
+            [strategy_name, account_name, json.dumps(state), datetime.now(timezone.utc)],
+        )
 
     def snapshot_portfolio(self, account, strategy_name: str, account_name: str):
         self.con.execute(

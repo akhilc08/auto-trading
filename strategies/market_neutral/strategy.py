@@ -31,7 +31,62 @@ class MarketNeutralStrategy(BaseStrategy):
     def on_bar(self, bars) -> None:
         if not self._initialized:
             self._run_formation()
+            self._restore_state()
         self._update(bars)
+        self._persist_state()
+
+    def _restore_state(self) -> None:
+        """Overlay position state saved by a prior fire onto the freshly-formed stocks, so the
+        one-shot Flight remembers what it holds and can manage exits / avoid re-stacking. A held
+        stock that did not re-form this run is flattened."""
+        if self.state_store is None:
+            return
+        saved = self.state_store.load()
+        by_sym = {s.symbol: s for s in self._stocks}
+        for sym, st in saved.items():
+            stock = by_sym.get(sym)
+            if stock is not None:
+                try:
+                    stock.position = Position(st.get("position", "none"))
+                    stock.bars_held = int(st.get("bars_held", 0))
+                    stock.cooldown_bars = int(st.get("cooldown_bars", 0))
+                    stock.qty_stock = float(st.get("qty_stock", 0.0))
+                    stock.qty_market = float(st.get("qty_market", 0.0))
+                except (ValueError, TypeError):
+                    self.logger.error(f"Bad saved state for {sym}, ignoring")
+            elif st.get("position", "none") != "none":
+                self._force_exit_orphan(sym, st)
+
+    def _persist_state(self) -> None:
+        if self.state_store is None:
+            return
+        state = {}
+        for s in self._stocks:
+            if s.position is not Position.NONE or s.cooldown_bars > 0:
+                state[s.symbol] = {
+                    "position": s.position.value,
+                    "bars_held": s.bars_held,
+                    "cooldown_bars": s.cooldown_bars,
+                    "qty_stock": s.qty_stock,
+                    "qty_market": s.qty_market,
+                }
+        self.state_store.save(state)
+
+    def _force_exit_orphan(self, sym: str, st: dict) -> None:
+        try:
+            position = st.get("position", "none")
+            qty_stock = float(st.get("qty_stock", 0.0))
+            qty_market = float(st.get("qty_market", 0.0))
+        except (ValueError, TypeError):
+            return
+        self.logger.warning(f"Flattening orphaned position {sym} (no longer in formed book)")
+        proxy = self.config.MARKET_PROXY
+        if position == "long":
+            self.order_manager.sell(sym, qty_stock)
+            self.order_manager.buy_to_cover(proxy, qty_market)
+        elif position == "short":
+            self.order_manager.buy_to_cover(sym, qty_stock)
+            self.order_manager.sell(proxy, qty_market)
 
     def _run_formation(self) -> None:
         self.logger.info("Running formation: fetching historical bars...")
@@ -135,8 +190,16 @@ class MarketNeutralStrategy(BaseStrategy):
         qty_market = round(self.config.POSITION_SIZE_USD * stock.beta_hat / market_price, 0)
         if qty_stock < 1 or qty_market < 1:
             return
-        self.order_manager.buy(stock.symbol, qty_stock)
-        self.order_manager.short_sell(self.config.MARKET_PROXY, qty_market)
+        order_s = self.order_manager.buy(stock.symbol, qty_stock)
+        order_m = self.order_manager.short_sell(self.config.MARKET_PROXY, qty_market)
+        if order_s is None or order_m is None:
+            # Don't record a position the broker didn't fully accept; unwind any filled leg.
+            if order_s is not None:
+                self.order_manager.sell(stock.symbol, qty_stock)
+            if order_m is not None:
+                self.order_manager.buy_to_cover(self.config.MARKET_PROXY, qty_market)
+            self.logger.error(f"Entry failed for {stock.symbol}; staying flat")
+            return
         stock.position = Position.LONG
         stock.bars_held = 0
         stock.qty_stock = qty_stock
@@ -147,8 +210,15 @@ class MarketNeutralStrategy(BaseStrategy):
         qty_market = round(self.config.POSITION_SIZE_USD * stock.beta_hat / market_price, 0)
         if qty_stock < 1 or qty_market < 1:
             return
-        self.order_manager.short_sell(stock.symbol, qty_stock)
-        self.order_manager.buy(self.config.MARKET_PROXY, qty_market)
+        order_s = self.order_manager.short_sell(stock.symbol, qty_stock)
+        order_m = self.order_manager.buy(self.config.MARKET_PROXY, qty_market)
+        if order_s is None or order_m is None:
+            if order_s is not None:
+                self.order_manager.buy_to_cover(stock.symbol, qty_stock)
+            if order_m is not None:
+                self.order_manager.sell(self.config.MARKET_PROXY, qty_market)
+            self.logger.error(f"Entry failed for {stock.symbol}; staying flat")
+            return
         stock.position = Position.SHORT
         stock.bars_held = 0
         stock.qty_stock = qty_stock

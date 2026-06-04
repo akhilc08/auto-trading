@@ -41,7 +41,62 @@ class StatArbStrategy(BaseStrategy):
         # does formation + _update, subsequent calls do _update.
         if not self._initialized:
             self._run_formation()
+            self._restore_state()
         self._update(bars)
+        self._persist_state()
+
+    def _restore_state(self) -> None:
+        """Overlay position state saved by a prior fire onto the freshly-formed pairs, so the
+        one-shot Flight remembers what it holds and can manage exits / avoid re-stacking. A held
+        pair that did not re-form this run (e.g. cointegration dropped it) is flattened."""
+        if self.state_store is None:
+            return
+        saved = self.state_store.load()
+        by_key = {f"{p.symbol_a}/{p.symbol_b}": p for p in self._pairs}
+        for key, st in saved.items():
+            pair = by_key.get(key)
+            if pair is not None:
+                try:
+                    pair.position = PairPosition(st.get("position", "none"))
+                    pair.bars_held = int(st.get("bars_held", 0))
+                    pair.cooldown_bars = int(st.get("cooldown_bars", 0))
+                    pair.qty_a = float(st.get("qty_a", 0.0))
+                    pair.qty_b = float(st.get("qty_b", 0.0))
+                except (ValueError, TypeError):
+                    self.logger.error(f"Bad saved state for pair {key}, ignoring")
+            elif st.get("position", "none") != "none":
+                self._force_exit_orphan(key, st)
+
+    def _persist_state(self) -> None:
+        if self.state_store is None:
+            return
+        state = {}
+        for p in self._pairs:
+            if p.position is not PairPosition.NONE or p.cooldown_bars > 0:
+                state[f"{p.symbol_a}/{p.symbol_b}"] = {
+                    "position": p.position.value,
+                    "bars_held": p.bars_held,
+                    "cooldown_bars": p.cooldown_bars,
+                    "qty_a": p.qty_a,
+                    "qty_b": p.qty_b,
+                }
+        self.state_store.save(state)
+
+    def _force_exit_orphan(self, key: str, st: dict) -> None:
+        try:
+            sym_a, sym_b = key.split("/", 1)
+            position = st.get("position", "none")
+            qty_a = float(st.get("qty_a", 0.0))
+            qty_b = float(st.get("qty_b", 0.0))
+        except (ValueError, TypeError):
+            return
+        self.logger.warning(f"Flattening orphaned pair {key} (no longer in formed book)")
+        if position == "long":
+            self.order_manager.sell(sym_a, qty_a)
+            self.order_manager.buy_to_cover(sym_b, qty_b)
+        elif position == "short":
+            self.order_manager.buy_to_cover(sym_a, qty_a)
+            self.order_manager.sell(sym_b, qty_b)
 
     def _run_formation(self) -> None:
         self.logger.info("Running formation: fetching historical bars...")
@@ -201,8 +256,16 @@ class StatArbStrategy(BaseStrategy):
         qty_b = round(self.config.POSITION_SIZE_USD / price_b, 0)
         if qty_a < 1 or qty_b < 1:
             return
-        self.order_manager.buy(pair.symbol_a, qty_a)
-        self.order_manager.short_sell(pair.symbol_b, qty_b)
+        order_a = self.order_manager.buy(pair.symbol_a, qty_a)
+        order_b = self.order_manager.short_sell(pair.symbol_b, qty_b)
+        if order_a is None or order_b is None:
+            # Don't record a position the broker didn't fully accept; unwind any filled leg.
+            if order_a is not None:
+                self.order_manager.sell(pair.symbol_a, qty_a)
+            if order_b is not None:
+                self.order_manager.buy_to_cover(pair.symbol_b, qty_b)
+            self.logger.error(f"Entry failed for {pair.symbol_a}/{pair.symbol_b}; staying flat")
+            return
         pair.position = PairPosition.LONG
         pair.bars_held = 0
         pair.qty_a = qty_a
@@ -213,8 +276,15 @@ class StatArbStrategy(BaseStrategy):
         qty_b = round(self.config.POSITION_SIZE_USD / price_b, 0)
         if qty_a < 1 or qty_b < 1:
             return
-        self.order_manager.short_sell(pair.symbol_a, qty_a)
-        self.order_manager.buy(pair.symbol_b, qty_b)
+        order_a = self.order_manager.short_sell(pair.symbol_a, qty_a)
+        order_b = self.order_manager.buy(pair.symbol_b, qty_b)
+        if order_a is None or order_b is None:
+            if order_a is not None:
+                self.order_manager.buy_to_cover(pair.symbol_a, qty_a)
+            if order_b is not None:
+                self.order_manager.sell(pair.symbol_b, qty_b)
+            self.logger.error(f"Entry failed for {pair.symbol_a}/{pair.symbol_b}; staying flat")
+            return
         pair.position = PairPosition.SHORT
         pair.bars_held = 0
         pair.qty_a = qty_a
