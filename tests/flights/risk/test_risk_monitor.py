@@ -4,11 +4,18 @@ Mirrors tests/test_motherduck_logger.py: a fresh duckdb.connect() with the base 
 created via MotherDuckLogger(con=...), then risk_monitor.run(con).
 """
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 import duckdb
 
 from core.motherduck_logger import MotherDuckLogger
 from flights.risk import risk_monitor
+
+_ET = ZoneInfo("America/New_York")
+
+
+def _et_today():
+    return dt.datetime.now(dt.timezone.utc).astimezone(_ET).date()
 
 
 def _base_con():
@@ -127,7 +134,7 @@ def test_run_clears_resolved_alerts():
     """A previously-written alert from an earlier run is removed when it no longer fires."""
     con = _base_con()
     risk_monitor.run(con)  # create the table (no data -> no alerts)
-    today = dt.datetime.now(dt.timezone.utc).date()
+    today = _et_today()    # Flight stamps alert_date in ET
     stale = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)
     con.execute(
         risk_monitor._UPSERT_ALERT,
@@ -135,4 +142,75 @@ def test_run_clears_resolved_alerts():
     )
     assert con.execute("SELECT count(*) FROM trading.main.risk_alerts").fetchone()[0] == 1
     risk_monitor.run(con)  # no breaching data this run -> stale alert must be cleared
+    assert con.execute("SELECT count(*) FROM trading.main.risk_alerts").fetchone()[0] == 0
+
+
+def test_closed_positions_excluded_from_gross():
+    """A position absent from the latest snapshot batch (closed) must not count toward exposure."""
+    con = _base_con()
+    t0 = dt.datetime(2026, 6, 4, 14, 0, tzinfo=dt.timezone.utc)
+    t1 = dt.datetime(2026, 6, 4, 15, 0, tzinfo=dt.timezone.utc)  # later batch
+    _insert_position(con, "acct", "s1", "AAPL", 100, 200.0, t0)  # held at t0...
+    _insert_position(con, "acct", "s1", "MSFT", 50, 100.0, t0)
+    _insert_position(con, "acct", "s1", "MSFT", 50, 100.0, t1)   # ...AAPL closed; only MSFT at t1
+    _insert_equity(con, "acct", "s1", 50000.0, t1)
+    m = risk_monitor._account_metrics(con)["acct"]
+    assert abs(m["gross_ratio"] - 0.1) < 1e-6   # 5k/50k (AAPL's 20k excluded)
+    assert m["top_symbol"] == "MSFT"
+
+
+def test_short_positions_count_toward_gross():
+    """gross is sum of ABSOLUTE market values — shorts count (market-neutral books)."""
+    con = _base_con()
+    t = dt.datetime(2026, 6, 4, 15, 0, tzinfo=dt.timezone.utc)
+    _insert_position(con, "acct", "s1", "AAPL", 100, 200.0, t)    # +20k long
+    _insert_position(con, "acct", "s1", "TSLA", -100, 300.0, t)   # -30k short
+    _insert_equity(con, "acct", "s1", 50000.0, t)
+    m = risk_monitor._account_metrics(con)["acct"]
+    assert abs(m["gross_ratio"] - 1.0) < 1e-6        # (20k + 30k)/50k, NOT net (-10k)
+    assert m["top_symbol"] == "TSLA"                  # |30k| is largest
+    assert abs(m["concentration"] - 0.6) < 1e-6       # 30k/50k
+
+
+def test_multi_account_isolation():
+    con = _base_con()
+    t = dt.datetime(2026, 6, 4, 15, 0, tzinfo=dt.timezone.utc)
+    _insert_position(con, "A", "s", "AAPL", 100, 200.0, t)   # 20k
+    _insert_equity(con, "A", "s", 100000.0, t)               # 0.2x
+    _insert_position(con, "B", "s", "TSLA", 100, 300.0, t)   # 30k
+    _insert_equity(con, "B", "s", 30000.0, t)                # 1.0x
+    m = risk_monitor._account_metrics(con)
+    assert abs(m["A"]["gross_ratio"] - 0.2) < 1e-6 and m["A"]["top_symbol"] == "AAPL"
+    assert abs(m["B"]["gross_ratio"] - 1.0) < 1e-6 and m["B"]["top_symbol"] == "TSLA"
+
+
+def test_severity_boundaries_inclusive():
+    assert risk_monitor._severity(1.5, 1.5, 2.0) == "warn"      # exactly warn
+    assert risk_monitor._severity(2.0, 1.5, 2.0) == "breach"    # exactly breach
+    assert risk_monitor._severity(1.4999, 1.5, 2.0) is None     # just below warn
+    assert risk_monitor._severity(0.05, 0.05, 0.10) == "warn"
+    assert risk_monitor._severity(0.10, 0.05, 0.10) == "breach"
+
+
+def test_drawdown_alert_for_flat_account():
+    """An account with equity + a recorded drawdown but NO open positions must still alert."""
+    con = _base_con()
+    t = dt.datetime(2026, 6, 4, 15, 0, tzinfo=dt.timezone.utc)
+    _insert_equity(con, "acct", "s1", 50000.0, t)                                  # flat: equity only
+    _insert_daily_pnl(con, "acct", "s1", dt.date(2026, 6, 3), -100.0, 10000.0)     # 20% -> breach
+    risk_monitor.run(con)
+    rows = con.execute(
+        "SELECT severity FROM trading.main.risk_alerts "
+        "WHERE alert_type='drawdown' AND account_name='acct'"
+    ).fetchall()
+    assert len(rows) == 1 and rows[0][0] == "breach"
+
+
+def test_equity_zero_produces_no_alerts():
+    con = _base_con()
+    t = dt.datetime(2026, 6, 4, 15, 0, tzinfo=dt.timezone.utc)
+    _insert_position(con, "acct", "s1", "AAPL", 100, 200.0, t)
+    _insert_equity(con, "acct", "s1", 0.0, t)
+    _insert_daily_pnl(con, "acct", "s1", dt.date(2026, 6, 3), -100.0, 10000.0)
+    assert risk_monitor.run(con) == 0
     assert con.execute("SELECT count(*) FROM trading.main.risk_alerts").fetchone()[0] == 0

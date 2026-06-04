@@ -9,12 +9,17 @@ from the rest of the repo — thresholds are inlined below.
 
 Account-level metrics dedupe the per-strategy-duplicated snapshot rows: flights/exec/_runner.py
 snapshots the same account-wide Alpaca positions/equity once per strategy, so
-positions/portfolio_snapshots rows repeat across strategy_name. Taking the most recent row per
-(account, symbol) / per account recovers the true account view.
+positions/portfolio_snapshots rows repeat across strategy_name. Taking the most recent snapshot
+batch per account recovers the true current account view (and drops closed positions).
 """
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import duckdb
+
+# US market calendar. The Dive filters alert_date in America/New_York, so the Flight must stamp
+# alert_date in the same zone (not UTC) or after-hours runs would land on the wrong day.
+_ET = ZoneInfo("America/New_York")
 
 # ── Risk limits (fraction of equity; ascending warn < breach) ──────────────────────────────
 GROSS_EXPOSURE_WARN = 1.5    # gross exposure / equity
@@ -39,13 +44,25 @@ CREATE TABLE IF NOT EXISTS trading.main.risk_alerts (
 )
 """
 
-# Latest row per (account, symbol) across ALL strategies (dedupes the per-strategy duplication).
+# Current positions = the most-recent snapshot BATCH per account (MAX(snapshot_at)), then
+# de-duplicated per symbol. Scoping to the latest batch — rather than latest-row-per-symbol —
+# drops positions that were closed: once a symbol is no longer held it stops appearing in new
+# snapshots, and positions rows are never tombstoned, so a per-symbol-latest query would resurrect
+# closed positions and inflate gross/concentration forever. The per-symbol ROW_NUMBER still
+# collapses the multiple strategies that snapshot the same account batch.
 _LATEST_POSITIONS = """
-SELECT account_name, symbol, qty, current_price FROM (
-    SELECT account_name, symbol, qty, current_price,
-           ROW_NUMBER() OVER (PARTITION BY account_name, symbol ORDER BY snapshot_at DESC) AS rn
+WITH latest AS (
+    SELECT account_name, MAX(snapshot_at) AS ts
     FROM trading.main.positions
-    WHERE current_price IS NOT NULL
+    GROUP BY account_name
+)
+SELECT account_name, symbol, qty, current_price FROM (
+    SELECT p.account_name, p.symbol, p.qty, p.current_price,
+           ROW_NUMBER() OVER (PARTITION BY p.account_name, p.symbol
+                              ORDER BY p.snapshot_at DESC) AS rn
+    FROM trading.main.positions p
+    JOIN latest l ON p.account_name = l.account_name AND p.snapshot_at = l.ts
+    WHERE p.current_price IS NOT NULL
 ) WHERE rn = 1
 """
 
@@ -83,15 +100,22 @@ ON CONFLICT (alert_date, account_name, strategy_name, alert_type) DO UPDATE SET
 """
 
 
-def _account_metrics(con):
-    """Per-account exposure metrics. Returns
-    {account: {gross_ratio, concentration, top_symbol, equity}}."""
-    equity = {a: float(e) for a, e in con.execute(_LATEST_EQUITY).fetchall()}
+def _latest_equity(con):
+    """{account: equity} from the most recent portfolio snapshot per account."""
+    return {a: float(e) for a, e in con.execute(_LATEST_EQUITY).fetchall()}
+
+
+def _account_metrics(con, equity=None):
+    """Per-account exposure metrics from current positions. Returns
+    {account: {gross_ratio, concentration, top_symbol, equity}}. Accounts with no positions or
+    non-positive equity are omitted (exposure/concentration require open positions + equity)."""
+    if equity is None:
+        equity = _latest_equity(con)
     positions = con.execute(_LATEST_POSITIONS).fetchall()
     gross = {}      # account -> total |market value|
     top = {}        # account -> (symbol, market value)
     for account, symbol, qty, price in positions:
-        mv = abs(float(qty) * float(price))
+        mv = abs(float(qty) * float(price))   # gross counts longs AND shorts (market-neutral books)
         gross[account] = gross.get(account, 0.0) + mv
         if account not in top or mv > top[account][1]:
             top[account] = (symbol, mv)
@@ -119,7 +143,7 @@ def _drawdown_metrics(con):
 
 
 def _severity(value, warn, breach):
-    """'breach', 'warn', or None for a metric measured against ascending thresholds."""
+    """'breach', 'warn', or None for a metric measured against ascending thresholds (inclusive)."""
     if value >= breach:
         return "breach"
     if value >= warn:
@@ -127,10 +151,17 @@ def _severity(value, warn, breach):
     return None
 
 
-def _derive_alerts(account_metrics, drawdown, now=None):
-    """Build alert dicts (no DB writes). Account-level alerts use strategy_name=''."""
+def _derive_alerts(account_metrics, drawdown, equity=None, now=None):
+    """Build alert dicts (no DB writes). Account-level alerts use strategy_name=''.
+
+    `equity` is the {account: equity} map. Drawdown alerts ratio against it directly so a
+    currently-flat account (no open positions, hence absent from account_metrics) still gets
+    drawdown alerts. Defaults to the equity carried in account_metrics when not supplied.
+    """
     now = now or datetime.now(timezone.utc)
-    today = now.date()
+    today = now.astimezone(_ET).date()   # ET trading day — matches the Dive's filter
+    if equity is None:
+        equity = {acct: m["equity"] for acct, m in account_metrics.items()}
     alerts = []
 
     def add(account, strategy, alert_type, value, warn, breach, detail):
@@ -157,12 +188,13 @@ def _derive_alerts(account_metrics, drawdown, now=None):
             CONCENTRATION_WARN, CONCENTRATION_BREACH,
             f"{m['top_symbol']} is {m['concentration'] * 100:.1f}% of equity")
 
-    # Drawdown is per-strategy; ratio it against the strategy's account equity.
+    # Drawdown is per-strategy; ratio it against account equity, independent of whether the
+    # account currently holds positions (a flat account that took a loss must still alert).
     for (strategy, account), dd in drawdown.items():
-        m = account_metrics.get(account)
-        if not m or m["equity"] <= 0:
+        eq = equity.get(account)
+        if not eq or eq <= 0:
             continue
-        ratio = dd / m["equity"]
+        ratio = dd / eq
         add(account, strategy, "drawdown", ratio,
             DRAWDOWN_WARN, DRAWDOWN_BREACH,
             f"max drawdown ${dd:,.0f} = {ratio * 100:.1f}% of equity")
@@ -173,17 +205,19 @@ def _derive_alerts(account_metrics, drawdown, now=None):
 def run(con):
     con.execute(DDL)
     now = datetime.now(timezone.utc)
-    alerts = _derive_alerts(_account_metrics(con), _drawdown_metrics(con), now=now)
+    equity = _latest_equity(con)
+    alerts = _derive_alerts(_account_metrics(con, equity), _drawdown_metrics(con), equity, now=now)
     for a in alerts:
         con.execute(_UPSERT_ALERT, [
             a["alert_date"], a["account_name"], a["strategy_name"], a["alert_type"],
             a["severity"], a["metric_value"], a["threshold"], a["detail"], a["computed_at"],
         ])
-    # Remove today's alerts from earlier runs that did not fire this run (a breach cleared),
-    # so the Dive shows only currently-breaching limits. Runs even when alerts is empty.
+    # Remove today's alerts from earlier runs that did not fire this run (a breach cleared), so
+    # the Dive shows only currently-breaching limits. Runs even when alerts is empty. alert_date
+    # is the ET trading day (matches the rows just written and the Dive filter).
     con.execute(
         "DELETE FROM trading.main.risk_alerts WHERE alert_date = ? AND computed_at < ?",
-        [now.date(), now],
+        [now.astimezone(_ET).date(), now],
     )
     return len(alerts)
 
