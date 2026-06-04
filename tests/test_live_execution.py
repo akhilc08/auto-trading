@@ -219,6 +219,86 @@ def test_stat_arb_trades_on_single_on_bar(monkeypatch):
     assert len(client.orders) > 0, "stat_arb must place an order on its single one-shot on_bar call"
 
 
+class _FakeStore:
+    """In-memory stand-in for the MotherDuck strategy_state store."""
+
+    def __init__(self, state=None):
+        self.state = dict(state or {})
+
+    def load(self):
+        return dict(self.state)
+
+    def save(self, state):
+        self.state = dict(state)
+
+
+def test_stat_arb_persists_and_exits_across_fires(monkeypatch):
+    # The crux of unattended exits: fire 1 opens a position and persists it; a FRESH instance on
+    # fire 2 restores that position from the store and can exit it (EXIT/STOP/TIME_STOP).
+    import strategies.stat_arb.strategy as sa
+    from strategies.stat_arb.spread import KalmanSpread
+    from strategies.stat_arb.signals import PairPosition, SignalResult
+
+    store = _FakeStore()
+    bars = {"AAA": [_Bar(100.0, None)], "BBB": [_Bar(50.0, None)]}
+
+    def _ready_pair(strat):
+        kal = KalmanSpread(delta=strat.config.KALMAN_DELTA, obs_noise=strat.config.KALMAN_OBS_NOISE)
+        strat._pairs = [sa._PairState("AAA", "BBB", kal, innov_buf=[0.0] * 60, position=PairPosition.NONE)]
+        strat._initialized = True
+
+    # Fire 1 — enter and persist.
+    strat1, _, _ = _build("stat_arb")
+    strat1.state_store = store
+    monkeypatch.setattr(strat1, "_run_formation", lambda: _ready_pair(strat1))
+    monkeypatch.setattr(sa, "compute_signal", lambda **kw: SignalResult.ENTER_LONG)
+    strat1.on_bar(bars)
+    assert store.state.get("AAA/BBB", {}).get("position") == "long", "entry not persisted across fires"
+
+    # Fire 2 — a brand-new instance restores the LONG and exits it.
+    strat2, _, client2 = _build("stat_arb")
+    strat2.state_store = store
+    monkeypatch.setattr(strat2, "_run_formation", lambda: _ready_pair(strat2))
+    monkeypatch.setattr(sa, "compute_signal", lambda **kw: SignalResult.EXIT)
+    strat2.on_bar(bars)
+    assert len(client2.orders) >= 2, "restored position was not exited (sell A + cover B)"
+    assert "AAA/BBB" not in store.state, "flat position should not remain persisted as open"
+
+
+def test_stat_arb_flattens_orphaned_position(monkeypatch):
+    # A held pair that drops out of the formed book (e.g. cointegration fails today) must still be
+    # flattened, not left as an unmanaged open position.
+    import strategies.stat_arb.strategy as sa
+
+    store = _FakeStore({"AAA/BBB": {"position": "long", "bars_held": 3,
+                                    "cooldown_bars": 0, "qty_a": 10.0, "qty_b": 20.0}})
+    strat, _, client = _build("stat_arb")
+    strat.state_store = store
+    monkeypatch.setattr(strat, "_run_formation", lambda: setattr(strat, "_initialized", True))
+    strat.on_bar({"AAA": [_Bar(100.0, None)], "BBB": [_Bar(50.0, None)]})
+    assert len(client.orders) >= 2, "orphaned position was not flattened"
+    assert "AAA/BBB" not in store.state, "orphan should not be re-persisted"
+
+
+def test_market_neutral_persists_open_position(monkeypatch):
+    import strategies.market_neutral.strategy as mn
+    from strategies.market_neutral.signals import Signal
+
+    store = _FakeStore()
+    strat, cm, _ = _build("market_neutral")
+    strat.state_store = store
+    sym = cm.SYMBOLS[0]
+
+    def _ready_stock():
+        strat._stocks = [mn._StockState(symbol=sym, beta_hat=1.0, resid_buf=[0.0] * 30)]
+        strat._initialized = True
+
+    monkeypatch.setattr(strat, "_run_formation", _ready_stock)
+    monkeypatch.setattr(mn, "compute_signal", lambda **kw: Signal.ENTER_LONG)
+    strat.on_bar({s: [_Bar(100.0, None)] for s in cm.SYMBOLS})
+    assert store.state.get(sym, {}).get("position") == "long", "market_neutral entry not persisted"
+
+
 def test_multi_factor_rebalances_on_first_trading_day_of_month():
     strat, cm, client = _build("multi_factor_equity")
     # Mock history spans 2024-01-01..~2024-10; a live bar dated in a later month is that month's

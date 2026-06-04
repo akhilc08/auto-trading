@@ -116,6 +116,23 @@ def _build_client(api_key: str, secret_key: str) -> AlpacaClient:
     return client
 
 
+class _StrategyStateStore:
+    """Per-strategy handle over the FlightLogger's strategy_state table, bound to one
+    (strategy_name, account_name). Injected into the strategy so it can persist/restore its
+    position state between one-shot fires without knowing about MotherDuck."""
+
+    def __init__(self, md: FlightLogger, strategy_name: str, account_name: str):
+        self._md = md
+        self._strategy_name = strategy_name
+        self._account_name = account_name
+
+    def load(self) -> dict:
+        return self._md.load_strategy_state(self._strategy_name, self._account_name)
+
+    def save(self, state: dict) -> None:
+        self._md.save_strategy_state(self._strategy_name, self._account_name, state)
+
+
 def _discover_strategy_class(strategy_module):
     for attr in dir(strategy_module):
         obj = getattr(strategy_module, attr)
@@ -162,6 +179,8 @@ def run_account_flight(account_name: str, strategy_names: list[str], secret_name
         strategy = strategy_class(
             client=client, order_manager=order_manager, logger=logger, config=config_module,
         )
+        # Give the strategy a place to persist/restore position state across one-shot fires.
+        strategy.state_store = _StrategyStateStore(md, name, account_name)
         ran_strategies.append(name)
         interval = getattr(config_module, "INTERVAL", "1m")
         timeframe = TimeFrame.Day if interval == "1d" else (
