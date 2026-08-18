@@ -15,3 +15,6 @@ dist/
 
 # MotherDuck CLI dive identity sidecars (local; not source of truth)
 dives/*.dive-meta.json
+
+# MotherDuck CLI flight identity sidecars (local; not source of truth)
+flights/*/*.flight-meta.json
