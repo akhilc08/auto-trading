@@ -8,7 +8,7 @@ Three phases: get data flowing into MotherDuck, move execution to Flights, then 
 
 - [x] **Phase 1: Schema, Logger & Integration** - Tables, logger class, wired into OrderManager and runner.py (completed 2026-06-03)
 - [x] **Phase 2: Flights** - DuckDB secrets for Alpaca keys, 3 execution Flights + 1 aggregation Flight (completed 2026-06-03)
-- [ ] **Phase 3: Dives** - Four interactive visualizations over live trade and performance data
+- [x] **Phase 3: Dives** - Four interactive visualizations over live trade and performance data (completed 2026-06-03)
 
 ## Phase Details
 
@@ -61,11 +61,11 @@ Three phases: get data flowing into MotherDuck, move execution to Flights, then 
 **UI hint**: yes
 **Plans**: 5 plans
 
-  - [ ] 03-01-PLAN.md — Shared conventions, dives/ dir, STRATEGIES allow-list, SQL pre-flight + MCP Wave 0 gate (DIVES-01..04)
-  - [ ] 03-02-PLAN.md — Trade log Dive: 90-day trades, useDiveState strategy filter, color-coded pnl (DIVES-01)
-  - [ ] 03-03-PLAN.md — Live positions Dive: latest snapshot per strategy, green/red unrealized P&L (DIVES-02)
-  - [ ] 03-04-PLAN.md — Equity curve Dive: generate_series gap-fill, recharts multi-line (DIVES-03)
-  - [ ] 03-05-PLAN.md — Strategy comparison Dive: Sharpe/drawdown/win-rate/count/total-P&L table (DIVES-04)
+  - [x] 03-01-PLAN.md — Shared conventions, dives/ dir, STRATEGIES allow-list, SQL pre-flight + MCP Wave 0 gate (DIVES-01..04)
+  - [x] 03-02-PLAN.md — Trade log Dive: 90-day trades, useDiveState strategy filter, color-coded pnl (DIVES-01)
+  - [x] 03-03-PLAN.md — Live positions Dive: latest snapshot per strategy, green/red unrealized P&L (DIVES-02)
+  - [x] 03-04-PLAN.md — Equity curve Dive: generate_series gap-fill, recharts multi-line (DIVES-03)
+  - [x] 03-05-PLAN.md — Strategy comparison Dive: Sharpe/drawdown/win-rate/count/total-P&L table (DIVES-04)
 
 ## Progress
 
@@ -75,4 +75,4 @@ Three phases: get data flowing into MotherDuck, move execution to Flights, then 
 |-------|----------------|--------|-----------|
 | 1. Schema, Logger & Integration | 2/2 | Complete    | 2026-06-03 |
 | 2. Flights | 4/4 | Complete    | 2026-06-03 |
-| 3. Dives | 0/5 | Not started | - |
+| 3. Dives | 5/5 | Complete   | 2026-06-03 |
